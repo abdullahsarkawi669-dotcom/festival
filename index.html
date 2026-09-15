@@ -6,7 +6,7 @@
     <title>Pendaftaran Festival Abu Hurairah ke-13</title>
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Load Semua Database Santri (Pastikan file-file ini berada di folder yang sama) -->
+    <!-- Load Semua Database Santri -->
     <script src="data_smp_putra.js"></script>
     <script src="data_smp_putri.js"></script>
     <script src="data_sma_fullday.js"></script>
@@ -19,7 +19,6 @@
     <script src="data_sma_ibs_bali.js"></script>
     <script src="data_ulya.js"></script>
     <script src="data_wustho.js"></script>
-    
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans">
     
@@ -131,7 +130,6 @@
             { id: "pgmi", nama: "PGMI", gender: "PUTRI", jenjang: "PGMI" }
         ];
 
-        // Struktur Kategori Baru
         const MATA_LOMBA = {
             "SD": {
                 "Bahasa": ["[SD] Pidato B.Indo (1-3)", "[SD] Pidato B.Indo (4-6)", "[SD] Puisi B.Indo (1-3)", "[SD] Puisi B.Indo (4-6)", "[SD] Cerita B.Indo (1-3)", "[SD] Cerita B.Indo (4-6)", "[SD] Pidato B.Arab (1-3)", "[SD] Pidato B.Arab (4-6)", "[SD] Cerita B.Arab (1-3)", "[SD] Cerita B.Arab (4-6)", "[SD] Story Telling (4-6)"],
@@ -218,7 +216,6 @@
             listDiv.innerHTML = "";
             const filtered = LEMBAGA.filter(l => l.gender === gender);
             
-            // Daftar ID lembaga yang dinonaktifkan (belum ada data)
             const disabledIds = ["sd_sembalun_pa", "sd_sembalun_pi", "smp_sumbawa_pa", "smp_sumbawa_pi"];
 
             filtered.forEach(lembaga => {
@@ -246,7 +243,6 @@
             showScreen("kelas");
         }
 
-        // Pemuatan Objek DB Dinamis berdasarkan Lembaga
         function getDBForLembaga(idLembaga) {
             if (idLembaga === "smp_putra" && typeof DATA_SANTRI_SMP_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMP_PUTRA_ABHUR_MATARAM;
             if (idLembaga === "smp_putri" && typeof DATA_SANTRI_SMP_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMP_PUTRI_ABHUR_MATARAM;
@@ -260,7 +256,6 @@
             if (idLembaga === "sma_ibs_bali" && typeof DATA_SANTRI_SMA_IBS_AH_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_IBS_AH_PUTRA_ABHUR_MATARAM;
             if (idLembaga === "ulya" && typeof DATA_SANTRI_PPS_ULYA_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_PPS_ULYA_PUTRA_ABHUR_MATARAM;
             if (idLembaga === "wustho" && typeof DATA_SANTRI_PPS_WUSTHO_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_PPS_WUSTHO_PUTRA_ABHUR_MATARAM;
-            // Jika ada lembaga yg belum diinput, kembalikan objek kosong
             return {};
         }
 
@@ -304,18 +299,9 @@
                 listSantriAktif = db[currentKelas] || [];
             }
             
-            // Inisialisasi stateEntry
             listSantriAktif.forEach(s => {
                 if(typeof stateEntry[s] === 'undefined') stateEntry[s] = [];
             });
-        }
-
-        function getCabang(namaLomba) {
-            const jenjangObj = MATA_LOMBA[currentLembaga.jenjang];
-            for (let cabang in jenjangObj) {
-                if (jenjangObj[cabang].includes(namaLomba)) return cabang;
-            }
-            return "";
         }
 
         function setMode(mode) {
@@ -349,7 +335,18 @@
                 const grid = document.createElement("div");
                 grid.className = "grid grid-cols-1 md:grid-cols-2 gap-4";
                 
+                let countLomba = 0;
+
                 jenjangLomba[cabang].forEach(lomba => {
+                    // LOGIKA PEMISAH SD KELAS 1-3 DAN 4-6
+                    if (currentLembaga.jenjang === "SD") {
+                        const isKelasBawah = /^[123]/.test(currentKelas);
+                        const isKelasAtas = /^[456]/.test(currentKelas);
+                        if (isKelasBawah && lomba.includes("(4-6)")) return;
+                        if (isKelasAtas && lomba.includes("(1-3)")) return;
+                    }
+
+                    countLomba++;
                     const card = document.createElement("div");
                     card.className = "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between";
                     card.innerHTML = `
@@ -358,8 +355,12 @@
                     `;
                     grid.appendChild(card);
                 });
-                wrapper.appendChild(grid);
-                container.appendChild(wrapper);
+                
+                // Hanya tampilkan cabang jika ada lomba yang lolos filter
+                if(countLomba > 0) {
+                    wrapper.appendChild(grid);
+                    container.appendChild(wrapper);
+                }
             }
         }
 
@@ -374,7 +375,6 @@
                 const lombaTerpilih = stateEntry[santri];
                 const isDiLombaIni = lombaTerpilih.find(l => l.nama === lomba) !== undefined;
                 
-                // Pengecekan Constraint
                 let isDisabled = false;
                 let infoText = "";
                 let bgClass = "hover:bg-gray-50";
@@ -427,11 +427,11 @@
                 const idxDiState = stateEntry[santri].findIndex(l => l.nama === currentLombaAktif.nama);
 
                 if (isChecked && idxDiState === -1) {
-                    stateEntry[santri].push(currentLombaAktif); // Add
+                    stateEntry[santri].push(currentLombaAktif);
                     kirimDataKeGas(santri, currentLombaAktif.nama, "add");
                     adaPerubahan = true;
                 } else if (!isChecked && idxDiState !== -1) {
-                    stateEntry[santri].splice(idxDiState, 1); // Remove
+                    stateEntry[santri].splice(idxDiState, 1);
                     kirimDataKeGas(santri, currentLombaAktif.nama, "remove");
                     adaPerubahan = true;
                 }
@@ -486,11 +486,21 @@
                 const divCabang = document.createElement("div");
                 divCabang.innerHTML = `<h4 class="font-bold text-gray-700 bg-gray-100 p-2 rounded text-sm mb-2">Cabang ${cabang}</h4>`;
                 
-                // Cek apakah santri sudah milih lomba di cabang ini
                 const isCabangTerisi = lombaTerpilih.find(l => l.cabang === cabang) !== undefined;
                 const batasPenuh = lombaTerpilih.length >= 2;
+                
+                let countLomba = 0;
 
                 jenjangLomba[cabang].forEach(lomba => {
+                    // LOGIKA PEMISAH SD KELAS 1-3 DAN 4-6
+                    if (currentLembaga.jenjang === "SD") {
+                        const isKelasBawah = /^[123]/.test(currentKelas);
+                        const isKelasAtas = /^[456]/.test(currentKelas);
+                        if (isKelasBawah && lomba.includes("(4-6)")) return;
+                        if (isKelasAtas && lomba.includes("(1-3)")) return;
+                    }
+                    
+                    countLomba++;
                     const isChecked = lombaTerpilih.find(l => l.nama === lomba) !== undefined;
                     
                     let isDisabled = false;
@@ -512,7 +522,6 @@
                         <span class="text-sm">${lomba} <span class="text-red-500 text-[10px]">${textRed}</span></span>
                     `;
                     
-                    // Supaya checkbox reaktif di dalam modal
                     const chk = label.querySelector('input');
                     chk.addEventListener('change', () => {
                         updateStateTempDanRefreshModal(chk.value, chk.dataset.cabang, chk.checked);
@@ -520,14 +529,14 @@
 
                     divCabang.appendChild(label);
                 });
-                content.appendChild(divCabang);
+                
+                if(countLomba > 0) content.appendChild(divCabang);
             }
 
             document.getElementById("btn-simpan-modal").onclick = simpanDariModalSantri;
             document.getElementById("modal").classList.remove("hidden");
         }
 
-        // Fungsi bantu agar checkbox di modal reaktif saat di klik (men-disable/enable cabang lain)
         function updateStateTempDanRefreshModal(lomba, cabang, isChecked) {
             if (isChecked) {
                 stateEntry[currentSantriAktif].push({nama: lomba, cabang: cabang});
@@ -537,7 +546,7 @@
                 stateEntry[currentSantriAktif].splice(idx, 1);
                 kirimDataKeGas(currentSantriAktif, lomba, "remove");
             }
-            openModalSantri(currentSantriAktif); // Refresh tampilan modal
+            openModalSantri(currentSantriAktif); 
         }
 
         function simpanDariModalSantri() {
@@ -598,7 +607,6 @@
             const container = document.getElementById("rekap-content");
             container.innerHTML = "";
             
-            // Urutan Tingkat yang diinginkan
             const orderTingkat = ["SD", "SMP", "SMA", "PGMI"];
             
             orderTingkat.forEach(tingkat => {
@@ -615,15 +623,19 @@
                     block.appendChild(header);
                     
                     const grid = document.createElement("div");
-                    grid.className = "grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200";
+                    // KHUSUS PGMI HANYA ADA 1 KOLOM (PUTRI SAJA)
+                    if(tingkat === "PGMI") {
+                        grid.className = "grid grid-cols-1";
+                        const colPutri = createColumnRekap("PUTRI", dataRekap[keyPutri], tingkat);
+                        grid.appendChild(colPutri);
+                    } else {
+                        grid.className = "grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200";
+                        const colPutra = createColumnRekap("PUTRA", dataRekap[keyPutra], tingkat);
+                        const colPutri = createColumnRekap("PUTRI", dataRekap[keyPutri], tingkat);
+                        grid.appendChild(colPutra);
+                        grid.appendChild(colPutri);
+                    }
                     
-                    // Kolom Putra
-                    const colPutra = createColumnRekap("PUTRA", dataRekap[keyPutra], tingkat);
-                    // Kolom Putri
-                    const colPutri = createColumnRekap("PUTRI", dataRekap[keyPutri], tingkat);
-                    
-                    grid.appendChild(colPutra);
-                    grid.appendChild(colPutri);
                     block.appendChild(grid);
                     container.appendChild(block);
                 }
@@ -641,7 +653,6 @@
                 return div;
             }
 
-            // Urutkan Cabang (Bahasa harus paling atas)
             const orderCabang = ["Bahasa", "UTHQ", "KLIK"];
             const lombaStruktur = MATA_LOMBA[tingkat];
 
