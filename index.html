@@ -19,6 +19,20 @@
     <script src="data_sma_ibs_bali.js"></script>
     <script src="data_ulya.js"></script>
     <script src="data_wustho.js"></script>
+
+    <!-- Custom CSS untuk Animasi Spinner/Loading -->
+    <style>
+        .loader {
+            border-top-color: #22c55e; /* Tailwind green-500 */
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans">
     
@@ -59,14 +73,19 @@
 
         <!-- LAYAR 4: Dashboard Entry Lomba -->
         <div id="screen-dashboard" class="hidden">
-            <div class="bg-green-600 text-white p-4 rounded-xl shadow-sm mb-6 flex justify-between items-center flex-wrap gap-2">
-                <div>
-                    <p class="text-sm text-green-100" id="dash-lembaga">Lembaga</p>
-                    <h3 class="text-2xl font-bold">Kelas <span id="dash-kelas"></span></h3>
+<!-- HEADER STICKY (FLYOVER) -->
+            <div class="sticky top-2 z-40 bg-green-600 bg-opacity-90 backdrop-blur-md text-white p-3 md:p-4 rounded-xl shadow-lg mb-6 flex justify-between items-center flex-wrap gap-2 border border-green-500 transition-all duration-300">
+                <div class="flex flex-col justify-center">
+                    <!-- Nama Lembaga: Huruf kecil, transparan, dan kapital -->
+                    <p class="text-[10px] md:text-xs text-green-100 uppercase tracking-wider font-semibold" id="dash-lembaga">Lembaga</p>
+                    <!-- Nama Kelas -->
+                    <h3 class="text-lg md:text-xl font-bold leading-tight">
+                        Kelas <span id="dash-kelas"></span>
+                    </h3>
                 </div>
-                <div class="flex gap-2">
-                    <button onclick="gantiKelas()" class="bg-white text-green-700 px-4 py-2 rounded text-sm font-bold shadow-sm hover:bg-green-50 transition">Ganti Kelas</button>
-                    <button onclick="adminBackLembaga()" class="bg-red-500 text-white px-4 py-2 rounded text-sm font-bold shadow-sm hover:bg-red-600 transition">Admin</button>
+                <div class="flex gap-2 items-center">
+                    <button onclick="gantiKelas()" class="bg-white text-green-700 px-3 py-1.5 md:px-4 md:py-2 rounded text-xs md:text-sm font-bold shadow-sm hover:bg-green-50 transition">Ganti Kelas</button>
+                    <button onclick="adminBackLembaga()" class="bg-red-500 text-white px-3 py-1.5 md:px-4 md:py-2 rounded text-xs md:text-sm font-bold shadow-sm hover:bg-red-600 transition">Admin</button>
                 </div>
             </div>
 
@@ -107,6 +126,15 @@
             <div class="p-4 border-t bg-white flex justify-end">
                 <button id="btn-simpan-modal" class="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-sm transition w-full sm:w-auto">Simpan Pilihan</button>
             </div>
+        </div>
+    </div>
+
+    <!-- OVERLAY LOADING SINKRONISASI -->
+    <div id="sync-overlay" class="fixed inset-0 bg-black bg-opacity-60 hidden flex-col items-center justify-center z-50 transition-opacity">
+        <div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center max-w-sm mx-4 text-center">
+            <div class="w-16 h-16 border-4 border-gray-200 border-solid rounded-full loader mb-4"></div>
+            <h3 class="text-xl font-bold text-gray-800 mb-2">Menyinkronkan Data</h3>
+            <p class="text-sm text-gray-500" id="sync-text">Mohon tunggu, sedang mengambil data pendaftaran lama dari Google Sheet...</p>
         </div>
     </div>
 
@@ -163,23 +191,45 @@
         let previousScreen = "";
         
         // GANTI DENGAN URL GAS ANDA JIKA BERUBAH
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbz0_1JieJU0YHmPulM4k8dkbAw3WhL-1C_n-DiUCPS5ii9nDaB1WiziWB6Ln-gPCdH-/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxxhRo8N3SKY9yjCHMAp8EFxnNwr5XgOBJZ3ED5DKHC_9SrzE9WcxFUcLULFPqFctBe/exec";
 
-        window.onload = () => {
+        window.onload = async () => {
             const saved = localStorage.getItem("app_audisi_session");
             if (saved) {
-                const session = JSON.parse(saved);
-                currentLembaga = session.lembaga;
-                if (session.kelas) {
-                    currentKelas = session.kelas;
-                    loadSantriData();
-                    showScreen("dashboard");
-                } else {
-                    renderKelasOptions();
-                    showScreen("kelas");
+                try {
+                    const session = JSON.parse(saved);
+                    currentLembaga = session.lembaga;
+                    if (session.kelas) {
+                        currentKelas = session.kelas;
+                        loadSantriData();
+                        
+                        showSyncOverlay();
+                        await loadRegistrationsFromGas();
+                        hideSyncOverlay();
+                        
+                        showScreen("dashboard");
+                    } else {
+                        renderKelasOptions();
+                        showScreen("kelas");
+                    }
+                } catch (err) {
+                    console.error("Gagal memulihkan sesi:", err);
+                    localStorage.removeItem("app_audisi_session");
                 }
             }
         };
+
+        function showSyncOverlay() {
+            const overlay = document.getElementById('sync-overlay');
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+        }
+
+        function hideSyncOverlay() {
+            const overlay = document.getElementById('sync-overlay');
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+        }
 
         function showScreen(screenId) {
             if(screenId !== 'rekap') {
@@ -259,14 +309,14 @@
             return {};
         }
 
-        function renderKelasOptions() {
+function renderKelasOptions() {
             const classDiv = document.getElementById("list-kelas");
             classDiv.innerHTML = "";
             
             let db = getDBForLembaga(currentLembaga.id);
 
             if (Object.keys(db).length === 0) {
-                alert("Database santri untuk lembaga ini belum dimuat (file .js belum tersedia atau belum ditambahkan).");
+                alert("Database santri untuk lembaga ini belum dimuat.");
                 return;
             }
 
@@ -274,11 +324,30 @@
                 const btn = document.createElement("button");
                 btn.className = "py-3 px-4 border rounded-lg font-bold text-gray-700 hover:bg-green-500 hover:text-white transition shadow-sm";
                 btn.innerText = kls;
-                btn.onclick = () => {
+                btn.onclick = async () => {
                     currentKelas = kls;
                     localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga, kelas: currentKelas }));
                     loadSantriData(db[kls]);
-                    showScreen("dashboard");
+
+                    showSyncOverlay();
+                    
+                    // Tidak pakai await panjang di sini
+                    setTimeout(async () => {
+                        try {
+                            const berhasil = await loadRegistrationsFromGas();
+                            if (!berhasil) {
+                                console.warn("Peringatan: Gagal memuat data lama dari server.");
+                            }
+                        } finally {
+                            hideSyncOverlay();
+                            // Render ulang data pada card jika pengguna sedang berada di halaman tersebut
+                            if(!document.getElementById("mode-santri").classList.contains("hidden")) searchSantri();
+                            if(!document.getElementById("mode-lomba").classList.contains("hidden")) setMode('lomba');
+                        }
+                    }, 10);
+                    
+                    // Langsung pindah layar, jangan biarkan user menunggu layar putih
+                    showScreen("dashboard"); 
                 };
                 classDiv.appendChild(btn);
             });
@@ -320,6 +389,60 @@
                 document.getElementById("mode-santri").classList.remove("hidden");
                 document.getElementById("mode-lomba").classList.add("hidden");
                 searchSantri();
+            }
+        }
+
+        // ================= SINKRONISASI DATA GOOGLE SHEET =================
+        function findCabangForLomba(namaLomba) {
+            const jenjangLomba = MATA_LOMBA[currentLembaga.jenjang] || {};
+            for (const cabang in jenjangLomba) {
+                if (jenjangLomba[cabang].includes(namaLomba)) return cabang;
+            }
+            return "";
+        }
+
+        async function loadRegistrationsFromGas() {
+            // Reset state hanya untuk santri pada kelas yang sedang aktif.
+            listSantriAktif.forEach(s => stateEntry[s] = []);
+
+            const params = new URLSearchParams({
+                action: "registrations",
+                jenjang: currentLembaga.jenjang || "",
+                lembaga: currentLembaga.nama || "",
+                kelas: currentKelas || ""
+            });
+
+            try {
+                const res = await fetch(`${GAS_URL}?${params.toString()}`, {
+                    method: "GET",
+                    cache: "no-store"
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const result = await res.json();
+                if (result.status !== "success") {
+                    throw new Error(result.message || "Server mengembalikan error");
+                }
+
+                (result.data || []).forEach(item => {
+                    // Hanya masukkan santri yang memang ada di database kelas aktif.
+                    if (!stateEntry[item.nama]) return;
+
+                    const cabang = item.cabang || findCabangForLomba(item.lomba);
+                    if (!stateEntry[item.nama].some(x => x.nama === item.lomba)) {
+                        stateEntry[item.nama].push({
+                            nama: item.lomba,
+                            cabang: cabang
+                        });
+                    }
+                });
+
+                console.log("Pendaftaran lama berhasil dimuat:", result.data?.length || 0);
+                return true;
+            } catch (err) {
+                console.error("Gagal memuat pendaftaran dari Google Sheet:", err);
+                return false;
             }
         }
 
@@ -555,23 +678,39 @@
         }
 
         // ================= KOMUNIKASI GAS & REKAP =================
-        function kirimDataKeGas(namaSantri, namaLomba, action) {
+        async function kirimDataKeGas(namaSantri, namaLomba, action) {
             const payload = {
                 jenjang: currentLembaga.jenjang,
                 lembaga: currentLembaga.nama,
                 kelas: currentKelas,
                 nama: namaSantri,
                 lomba: namaLomba,
-                action: action // "add" atau "remove"
+                action: action
             };
 
-            fetch(GAS_URL, {
-                method: 'POST',
-                //mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            }).then(() => console.log('Terkirim:', action, namaLomba))
-              .catch(e => console.error('Error:', e));
+            try {
+                const res = await fetch(GAS_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "text/plain;charset=utf-8"
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const result = await res.json();
+                if (result.status !== "success" || result.updated !== true) {
+                    throw new Error(result.message || "Baris/kolom lomba tidak ditemukan di Google Sheet");
+                }
+
+                console.log("Berhasil:", action, namaSantri, namaLomba);
+                return true;
+            } catch (e) {
+                console.error("Gagal menyimpan ke Google Sheet:", e);
+                alert(`Gagal menyimpan "${namaSantri}" pada lomba "${namaLomba}".\n\n${e.message}`);
+                return false;
+            }
         }
 
         function closeModal() {
