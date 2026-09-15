@@ -163,7 +163,7 @@
         let previousScreen = "";
         
         // GANTI DENGAN URL GAS ANDA JIKA BERUBAH
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbzmzsCrN_Yz075FINygZRlZFLF62DM-WSjCOTCen3wCrmIFZcwwCS7VpXOHqb41AuMo/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbz0_1JieJU0YHmPulM4k8dkbAw3WhL-1C_n-DiUCPS5ii9nDaB1WiziWB6Ln-gPCdH-/exec";
 
         window.onload = () => {
             const saved = localStorage.getItem("app_audisi_session");
@@ -567,7 +567,7 @@
 
             fetch(GAS_URL, {
                 method: 'POST',
-                mode: 'no-cors',
+                //mode: 'no-cors',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             }).then(() => console.log('Terkirim:', action, namaLomba))
