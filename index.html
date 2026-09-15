@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pendaftaran Festival Abu Hurairah ke-13</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <!-- Load Semua Database Santri -->
     <script src="data_smp_putra.js"></script>
     <script src="data_smp_putri.js"></script>
@@ -20,31 +20,241 @@
     <script src="data_ulya.js"></script>
     <script src="data_wustho.js"></script>
 
-    <!-- Custom CSS untuk Animasi Spinner/Loading -->
+    <!-- Custom CSS untuk Animasi Spinner/Loading + Toast + Sync Badge -->
     <style>
+        /* ===== Spinner utama ===== */
         .loader {
-            border-top-color: #22c55e; /* Tailwind green-500 */
-            -webkit-animation: spinner 1.5s linear infinite;
-            animation: spinner 1.5s linear infinite;
+            border-top-color: #22c55e;
+            -webkit-animation: spinner 0.8s linear infinite;
+            animation: spinner 0.8s linear infinite;
         }
-
+        .loader-sm {
+            border-top-color: currentColor;
+            -webkit-animation: spinner 0.6s linear infinite;
+            animation: spinner 0.6s linear infinite;
+        }
         @keyframes spinner {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        /* ===== Animasi pulse untuk badge sync ===== */
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.85); }
+        }
+        .pulse-dot { animation: pulseDot 1.2s ease-in-out infinite; }
+
+        /* ===== Toast notification ===== */
+        #toast-container {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: calc(100vw - 32px);
+            pointer-events: none;
+        }
+        .toast {
+            pointer-events: auto;
+            min-width: 280px;
+            max-width: 360px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: #ffffff;
+            color: #1f2937;
+            box-shadow: 0 10px 30px -5px rgba(0,0,0,0.2), 0 4px 10px -2px rgba(0,0,0,0.08);
+            border-left: 4px solid #22c55e;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            transform: translateX(420px);
+            opacity: 0;
+            transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .toast.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        .toast.hide {
+            transform: translateX(420px);
+            opacity: 0;
+        }
+        .toast-success { border-left-color: #22c55e; }
+        .toast-error   { border-left-color: #ef4444; }
+        .toast-info    { border-left-color: #3b82f6; }
+        .toast-warn    { border-left-color: #f59e0b; }
+        .toast-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            color: #fff;
+            margin-top: 1px;
+        }
+        .toast-success .toast-icon { background: #22c55e; }
+        .toast-error   .toast-icon { background: #ef4444; }
+        .toast-info    .toast-icon { background: #3b82f6; }
+        .toast-warn    .toast-icon { background: #f59e0b; }
+        .toast-title { font-weight: 700; margin-bottom: 2px; }
+        .toast-body { color: #4b5563; font-size: 13px; word-break: break-word; }
+        .toast-close {
+            margin-left: auto;
+            cursor: pointer;
+            color: #9ca3af;
+            font-size: 18px;
+            line-height: 1;
+            padding: 0 4px;
+        }
+        .toast-close:hover { color: #4b5563; }
+        .toast-actions { margin-top: 8px; display: flex; gap: 8px; }
+        .toast-btn {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .toast-btn-primary { background: #22c55e; color: #fff; }
+        .toast-btn-primary:hover { background: #16a34a; }
+        .toast-btn-secondary { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+        .toast-btn-secondary:hover { background: #e5e7eb; }
+
+        /* ===== Sync badge ===== */
+        #sync-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            white-space: nowrap;
+        }
+        #sync-badge.state-idle    { background: rgba(255,255,255,0.18); color: #ecfdf5; }
+        #sync-badge.state-pending { background: rgba(254, 243, 199, 0.95); color: #92400e; }
+        #sync-badge.state-syncing { background: rgba(254, 243, 199, 0.95); color: #92400e; }
+        #sync-badge.state-error   { background: rgba(254, 226, 226, 0.95); color: #991b1b; }
+        #sync-badge.state-loading { background: rgba(219, 234, 254, 0.95); color: #1e40af; }
+        #sync-badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            flex-shrink: 0;
+        }
+        #sync-badge.state-syncing .dot { animation: pulseDot 1s ease-in-out infinite; }
+        #sync-badge.state-loading .dot { animation: pulseDot 0.8s ease-in-out infinite; }
+
+        /* ===== Button loading state ===== */
+        .btn-loading {
+            position: relative;
+            pointer-events: none;
+            opacity: 0.85;
+        }
+        .btn-loading::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 16px;
+            height: 16px;
+            margin: -8px 0 0 -8px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            -webkit-animation: spinner 0.6s linear infinite;
+            animation: spinner 0.6s linear infinite;
+        }
+        .btn-loading > * { visibility: hidden; }
+
+        /* ===== Card pending state ===== */
+        .card-pending {
+            position: relative;
+        }
+        .card-pending::after {
+            content: '';
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f59e0b;
+            box-shadow: 0 0 0 3px rgba(254, 243, 199, 0.6);
+            animation: pulseDot 1.2s ease-in-out infinite;
+        }
+
+        /* ===== Overlay fade ===== */
+        #sync-overlay { transition: opacity 0.3s ease; }
+        .overlay-hidden { opacity: 0; pointer-events: none; }
+
+        /* ===== Progress bar di overlay ===== */
+        .progress-track {
+            width: 100%;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 999px;
+            overflow: hidden;
+            margin-top: 12px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            border-radius: 999px;
+            width: 30%;
+            transition: width 0.4s ease;
+        }
+        .progress-fill.indeterminate {
+            width: 30%;
+            animation: indeterminate 1.4s ease-in-out infinite;
+        }
+        @keyframes indeterminate {
+            0%   { transform: translateX(-100%); }
+            50%  { transform: translateX(150%); }
+            100% { transform: translateX(350%); }
+        }
+
+        /* ===== Smoother transition untuk screen switch ===== */
+        .screen-fade-in { animation: fadeIn 0.25s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ===== Smooth scrollbar ===== */
+        .smooth-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .smooth-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .smooth-scroll::-webkit-scrollbar-track { background: transparent; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans">
-    
+
     <div id="app" class="max-w-5xl mx-auto p-4 md:p-6 mt-4">
         <div class="text-center mb-8 relative">
             <h1 class="text-3xl font-bold text-green-700 mb-2">Festival Abu Hurairah ke-13</h1>
             <p class="text-gray-500" id="subtitle">Pendataan Peserta Lomba Tahun 2026</p>
-            <button onclick="bukaDashboardRekap()" class="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded shadow hover:bg-blue-700 transition">Lihat Rekap Pendaftar</button>
+            <div class="mt-4 flex flex-wrap justify-center gap-2">
+                <button onclick="bukaDashboardRekap()" class="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded shadow hover:bg-blue-700 transition">Lihat Rekap Pendaftar</button>
+                <button onclick="cekKoneksiServer()" class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded hover:bg-gray-200 transition">Cek Koneksi Server</button>
+            </div>
         </div>
 
         <!-- LAYAR 1: Pilih Gender -->
-        <div id="screen-gender" class="bg-white rounded-xl shadow-sm p-6 text-center transition">
+        <div id="screen-gender" class="bg-white rounded-xl shadow-sm p-6 text-center transition screen-fade-in">
             <h2 class="text-xl font-semibold mb-6">Pilih Kategori</h2>
             <div class="grid grid-cols-2 gap-4">
                 <button onclick="setGender('PUTRA')" class="py-12 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl border-2 border-blue-200 text-2xl transition">PUTRA</button>
@@ -73,17 +283,20 @@
 
         <!-- LAYAR 4: Dashboard Entry Lomba -->
         <div id="screen-dashboard" class="hidden">
-<!-- HEADER STICKY (FLYOVER) -->
+            <!-- HEADER STICKY (FLYOVER) -->
             <div class="sticky top-2 z-40 bg-green-600 bg-opacity-90 backdrop-blur-md text-white p-3 md:p-4 rounded-xl shadow-lg mb-6 flex justify-between items-center flex-wrap gap-2 border border-green-500 transition-all duration-300">
                 <div class="flex flex-col justify-center">
-                    <!-- Nama Lembaga: Huruf kecil, transparan, dan kapital -->
                     <p class="text-[10px] md:text-xs text-green-100 uppercase tracking-wider font-semibold" id="dash-lembaga">Lembaga</p>
-                    <!-- Nama Kelas -->
                     <h3 class="text-lg md:text-xl font-bold leading-tight">
                         Kelas <span id="dash-kelas"></span>
                     </h3>
                 </div>
-                <div class="flex gap-2 items-center">
+                <div class="flex gap-2 items-center flex-wrap">
+                    <!-- SYNC BADGE -->
+                    <div id="sync-badge" class="state-idle" onclick="handleSyncBadgeClick()" title="Klik untuk sinkronisasi manual">
+                        <span class="dot"></span>
+                        <span id="sync-badge-text">Memeriksa...</span>
+                    </div>
                     <button onclick="gantiKelas()" class="bg-white text-green-700 px-3 py-1.5 md:px-4 md:py-2 rounded text-xs md:text-sm font-bold shadow-sm hover:bg-green-50 transition">Ganti Kelas</button>
                     <button onclick="adminBackLembaga()" class="bg-red-500 text-white px-3 py-1.5 md:px-4 md:py-2 rounded text-xs md:text-sm font-bold shadow-sm hover:bg-red-600 transition">Admin</button>
                 </div>
@@ -95,50 +308,74 @@
             </div>
 
             <div id="mode-lomba" class="hidden space-y-6"></div>
-            
+
             <div id="mode-santri" class="hidden bg-white rounded-xl shadow-sm p-6">
-                <input type="text" id="search-santri" onkeyup="searchSantri()" placeholder="Ketik nama santri..." class="w-full p-3 border rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-green-500">
-                <div id="list-santri-search" class="space-y-2 max-h-[60vh] overflow-y-auto"></div>
+                <input type="text" id="search-santri" oninput="searchSantri()" placeholder="Ketik nama santri..." class="w-full p-3 border rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-green-500">
+                <div id="list-santri-search" class="space-y-2 max-h-[60vh] overflow-y-auto smooth-scroll"></div>
             </div>
         </div>
-        
+
         <!-- LAYAR 5: Rekap Dashboard -->
         <div id="screen-rekap" class="hidden bg-white rounded-xl shadow-sm p-6 transition">
             <div class="flex justify-between items-center mb-6 border-b pb-2">
                 <h2 class="text-2xl font-bold text-gray-800">Rekapitulasi Peserta</h2>
-                <button onclick="tutupRekap()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">Tutup</button>
+                <div class="flex gap-2">
+                    <button onclick="bukaDashboardRekap()" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200 font-semibold">Refresh</button>
+                    <button onclick="tutupRekap()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">Tutup</button>
+                </div>
             </div>
-            <div id="rekap-loading" class="text-center py-10 text-gray-500">Memuat data dari Google Sheet...</div>
+            <div id="rekap-loading" class="text-center py-10 text-gray-500">
+                <div class="inline-block w-10 h-10 border-4 border-gray-200 border-solid rounded-full loader mb-3"></div>
+                <p>Memuat data dari Google Sheet...</p>
+            </div>
             <div id="rekap-content" class="space-y-8 hidden"></div>
         </div>
     </div>
 
     <!-- Modal Form -->
-    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4 z-50">
         <div class="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div class="p-4 border-b flex justify-between items-center bg-gray-50">
                 <h3 class="font-bold text-lg text-gray-800" id="modal-title">Kelola Peserta</h3>
                 <button onclick="closeModal()" class="text-gray-500 hover:text-red-500 text-3xl leading-none">&times;</button>
             </div>
-            
-            <div class="p-4 overflow-y-auto flex-1 space-y-4" id="modal-content"></div>
-            
-            <div class="p-4 border-t bg-white flex justify-end">
-                <button id="btn-simpan-modal" class="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-sm transition w-full sm:w-auto">Simpan Pilihan</button>
+
+            <div class="p-4 overflow-y-auto flex-1 space-y-4 smooth-scroll" id="modal-content"></div>
+
+            <div class="p-4 border-t bg-white flex justify-end gap-2">
+                <button onclick="closeModal()" class="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition w-full sm:w-auto">Batal</button>
+                <button id="btn-simpan-modal" class="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-sm transition w-full sm:w-auto relative">Simpan Pilihan</button>
             </div>
         </div>
     </div>
 
     <!-- OVERLAY LOADING SINKRONISASI -->
-    <div id="sync-overlay" class="fixed inset-0 bg-black bg-opacity-60 hidden flex-col items-center justify-center z-50 transition-opacity">
+    <div id="sync-overlay" class="fixed inset-0 bg-black bg-opacity-60 hidden items-center justify-center z-50 transition-opacity">
         <div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center max-w-sm mx-4 text-center">
             <div class="w-16 h-16 border-4 border-gray-200 border-solid rounded-full loader mb-4"></div>
-            <h3 class="text-xl font-bold text-gray-800 mb-2">Menyinkronkan Data</h3>
-            <p class="text-sm text-gray-500" id="sync-text">Mohon tunggu, sedang mengambil data pendaftaran lama dari Google Sheet...</p>
+            <h3 class="text-xl font-bold text-gray-800 mb-2" id="sync-title">Menyinkronkan Data</h3>
+            <p class="text-sm text-gray-500" id="sync-text">Mohon tunggu, sedang mengambil data pendaftaran dari Google Sheet...</p>
+            <div class="progress-track" id="sync-progress-track" style="display:none;">
+                <div class="progress-fill indeterminate" id="sync-progress-fill"></div>
+            </div>
         </div>
     </div>
 
+    <!-- TOAST CONTAINER -->
+    <div id="toast-container"></div>
+
     <script>
+        // ============================================================
+        //  KONFIGURASI
+        // ============================================================
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbw2tlqWYBASgffuFIX6WzWalXnVE5QIP1fIdaON2dKRsc3bLGIgueUxFASJsBFQdHQZ/exec";
+        const FETCH_TIMEOUT_MS = 30000;     // 30 detik per request
+        const MAX_RETRY = 3;                 // maksimum retry per operasi
+        const RETRY_DELAYS = [1500, 3000, 6000]; // ms
+
+        // ============================================================
+        //  STATE APLIKASI
+        // ============================================================
         const LEMBAGA = [
             { id: "sd_putra", nama: "SD IT Putra Abhur Mataram", gender: "PUTRA", jenjang: "SD" },
             { id: "sd_putri", nama: "SD IT Putri Abhur Mataram", gender: "PUTRI", jenjang: "SD" },
@@ -184,16 +421,480 @@
         let currentLembaga = {};
         let currentKelas = "";
         let listSantriAktif = [];
-        let stateEntry = {}; 
-        let currentLombaAktif = ""; 
-        let currentModalContext = ""; 
-        let currentSantriAktif = ""; 
+        let stateEntry = {};
+        let currentLombaAktif = "";
+        let currentModalContext = "";
+        let currentSantriAktif = "";
         let previousScreen = "";
-        
-        // GANTI DENGAN URL GAS ANDA JIKA BERUBAH
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxxhRo8N3SKY9yjCHMAp8EFxnNwr5XgOBJZ3ED5DKHC_9SrzE9WcxFUcLULFPqFctBe/exec";
 
+        // ============================================================
+        //  SYNC QUEUE - Antrian operasi yang belum terkirim ke server
+        // ============================================================
+        // Format: [{ id, nama, lomba, action, retry, timestamp }]
+        let pendingSyncOps = [];
+        let isSyncing = false;
+        let lastSyncAt = null;
+        let lastSyncFailed = false;
+        const STORAGE_KEY_PENDING = "app_audisi_pending_sync";
+        const STORAGE_KEY_LASTSYNC = "app_audisi_last_sync";
+
+        // ============================================================
+        //  UTIL: Toast notifications (non-blocking, replace alert)
+        // ============================================================
+        function showToast(opts) {
+            if (typeof opts === 'string') opts = { title: opts };
+            const {
+                title = '',
+                body = '',
+                type = 'info', // success | error | info | warn
+                duration = 4000,
+                actions = []   // [{ label, primary, onClick }]
+            } = opts;
+
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+
+            const iconMap = { success: '✓', error: '!', info: 'i', warn: '!' };
+            const icon = iconMap[type] || 'i';
+
+            const actionsHtml = actions.length > 0
+                ? `<div class="toast-actions">${actions.map((a, i) => `<button class="toast-btn ${a.primary ? 'toast-btn-primary' : 'toast-btn-secondary'}" data-action-idx="${i}">${a.label}</button>`).join('')}</div>`
+                : '';
+
+            toast.innerHTML = `
+                <div class="toast-icon">${icon}</div>
+                <div class="flex-1 min-w-0">
+                    ${title ? `<div class="toast-title">${title}</div>` : ''}
+                    ${body ? `<div class="toast-body">${body}</div>` : ''}
+                    ${actionsHtml}
+                </div>
+                <span class="toast-close">&times;</span>
+            `;
+
+            container.appendChild(toast);
+
+            // Animate in
+            requestAnimationFrame(() => toast.classList.add('show'));
+
+            // Wire actions
+            actions.forEach((a, i) => {
+                const btn = toast.querySelector(`[data-action-idx="${i}"]`);
+                if (btn && typeof a.onClick === 'function') {
+                    btn.addEventListener('click', () => {
+                        dismiss();
+                        a.onClick();
+                    });
+                }
+            });
+
+            // Close button
+            toast.querySelector('.toast-close').addEventListener('click', dismiss);
+
+            // Auto dismiss
+            let timer = null;
+            if (duration > 0) {
+                timer = setTimeout(dismiss, duration);
+            }
+
+            function dismiss() {
+                if (timer) clearTimeout(timer);
+                toast.classList.remove('show');
+                toast.classList.add('hide');
+                setTimeout(() => toast.remove(), 350);
+            }
+
+            return { dismiss };
+        }
+
+        function toastSuccess(title, body) {
+            return showToast({ title, body, type: 'success', duration: 3500 });
+        }
+        function toastError(title, body, opts = {}) {
+            return showToast({ title, body, type: 'error', duration: opts.duration || 8000, actions: opts.actions || [] });
+        }
+        function toastInfo(title, body) {
+            return showToast({ title, body, type: 'info', duration: 4000 });
+        }
+        function toastWarn(title, body) {
+            return showToast({ title, body, type: 'warn', duration: 6000 });
+        }
+
+        // ============================================================
+        //  UTIL: fetch dengan timeout via AbortController
+        // ============================================================
+        function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            return fetch(url, { ...options, signal: controller.signal })
+                .finally(() => clearTimeout(timer));
+        }
+
+        function sleep(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
+
+        // ============================================================
+        //  UTIL: button loading state
+        // ============================================================
+        function setButtonLoading(btn, isLoading, loadingText) {
+            if (!btn) return;
+            if (isLoading) {
+                if (!btn.dataset.originalHtml) {
+                    btn.dataset.originalHtml = btn.innerHTML;
+                    btn.dataset.originalWidth = btn.style.width;
+                }
+                btn.classList.add('btn-loading');
+                btn.disabled = true;
+                if (loadingText) {
+                    btn.innerHTML = loadingText;
+                }
+            } else {
+                btn.classList.remove('btn-loading');
+                btn.disabled = false;
+                if (btn.dataset.originalHtml !== undefined) {
+                    btn.innerHTML = btn.dataset.originalHtml;
+                    delete btn.dataset.originalHtml;
+                }
+            }
+        }
+
+        // ============================================================
+        //  SYNC BADGE - indikator status sinkronisasi
+        // ============================================================
+        function setSyncBadgeState(state, text, opts = {}) {
+            const badge = document.getElementById('sync-badge');
+            const textEl = document.getElementById('sync-badge-text');
+            if (!badge || !textEl) return;
+
+            badge.className = `state-${state}`;
+            textEl.textContent = text;
+
+            // Pulse only for syncing/loading
+            const dot = badge.querySelector('.dot');
+            if (dot) {
+                dot.classList.toggle('pulse-dot', state === 'syncing' || state === 'loading');
+            }
+        }
+
+        function updateSyncBadge() {
+            if (isSyncing) {
+                setSyncBadgeState('syncing', `Menyinkronkan ${pendingSyncOps.length}...`);
+                return;
+            }
+            if (pendingSyncOps.length > 0) {
+                setSyncBadgeState('pending', `Menunggu ${pendingSyncOps.length} perubahan`);
+                return;
+            }
+            if (lastSyncFailed) {
+                setSyncBadgeState('error', `Gagal sync (ketuk)`);
+                return;
+            }
+            if (lastSyncAt) {
+                const t = new Date(lastSyncAt);
+                const hh = String(t.getHours()).padStart(2, '0');
+                const mm = String(t.getMinutes()).padStart(2, '0');
+                setSyncBadgeState('idle', `Tersinkron ${hh}:${mm}`);
+            } else {
+                setSyncBadgeState('idle', 'Tersinkron');
+            }
+        }
+
+        function handleSyncBadgeClick() {
+            if (isSyncing) {
+                toastInfo('Sedang menyinkronkan', 'Mohon tunggu proses sync selesai.');
+                return;
+            }
+            if (pendingSyncOps.length > 0 || lastSyncFailed) {
+                flushPendingSync(null, { manual: true });
+            } else {
+                toastInfo('Status Sync', lastSyncAt
+                    ? `Terakhir tersinkron: ${new Date(lastSyncAt).toLocaleTimeString('id-ID')}`
+                    : 'Belum ada sync terjadi.');
+            }
+        }
+
+        // ============================================================
+        //  SYNC OVERLAY (full-screen loader)
+        // ============================================================
+        function showSyncOverlay(title, text, opts = {}) {
+            const overlay = document.getElementById('sync-overlay');
+            document.getElementById('sync-title').innerText = title || 'Menyinkronkan Data';
+            document.getElementById('sync-text').innerText = text || 'Mohon tunggu...';
+            const track = document.getElementById('sync-progress-track');
+            const fill = document.getElementById('sync-progress-fill');
+            if (opts.progress != null) {
+                track.style.display = 'block';
+                fill.classList.remove('indeterminate');
+                fill.style.width = `${opts.progress}%`;
+            } else if (opts.indeterminate) {
+                track.style.display = 'block';
+                fill.classList.add('indeterminate');
+            } else {
+                track.style.display = 'none';
+            }
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            overlay.classList.remove('overlay-hidden');
+        }
+
+        function updateSyncOverlay(text, opts = {}) {
+            const textEl = document.getElementById('sync-text');
+            if (text) textEl.innerText = text;
+            const fill = document.getElementById('sync-progress-fill');
+            const track = document.getElementById('sync-progress-track');
+            if (opts.progress != null) {
+                track.style.display = 'block';
+                fill.classList.remove('indeterminate');
+                fill.style.width = `${opts.progress}%`;
+            }
+            if (opts.title) {
+                document.getElementById('sync-title').innerText = opts.title;
+            }
+        }
+
+        function hideSyncOverlay() {
+            const overlay = document.getElementById('sync-overlay');
+            overlay.classList.add('overlay-hidden');
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }, 250);
+        }
+
+        // ============================================================
+        //  PERSISTENT SYNC QUEUE - simpan ke localStorage agar tahan refresh
+        // ============================================================
+        function persistPendingOps() {
+            try {
+                localStorage.setItem(STORAGE_KEY_PENDING, JSON.stringify(pendingSyncOps));
+            } catch (e) {
+                console.warn('Gagal persist pending ops:', e);
+            }
+        }
+
+        function loadPendingOps() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY_PENDING);
+                if (raw) {
+                    pendingSyncOps = JSON.parse(raw) || [];
+                }
+                const lastSync = localStorage.getItem(STORAGE_KEY_LASTSYNC);
+                if (lastSync) lastSyncAt = parseInt(lastSync, 10) || null;
+            } catch (e) {
+                console.warn('Gagal load pending ops:', e);
+                pendingSyncOps = [];
+            }
+        }
+
+        function persistLastSync() {
+            if (lastSyncAt) {
+                localStorage.setItem(STORAGE_KEY_LASTSYNC, String(lastSyncAt));
+            }
+        }
+
+        // ============================================================
+        //  QUEUE OPERATION - tambahkan operasi ke antrian
+        // ============================================================
+        function queueSyncOp(namaSantri, namaLomba, action) {
+            // Cek apakah sudah ada operasi konflik (add+remove untuk kombinasi sama)
+            // Jika ada operasi kebalikan yang masih pending, saling menetralkan.
+            const opposingIdx = pendingSyncOps.findIndex(op =>
+                op.nama === namaSantri &&
+                op.lomba === namaLomba &&
+                op.action !== action
+            );
+
+            if (opposingIdx >= 0) {
+                // Netral: hapus operasi kebalikan yang masih pending.
+                pendingSyncOps.splice(opposingIdx, 1);
+                persistPendingOps();
+                updateSyncBadge();
+                return;
+            }
+
+            // Hindari duplikat persis
+            const dupIdx = pendingSyncOps.findIndex(op =>
+                op.nama === namaSantri &&
+                op.lomba === namaLomba &&
+                op.action === action
+            );
+            if (dupIdx >= 0) return;
+
+            pendingSyncOps.push({
+                id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                nama: namaSantri,
+                lomba: namaLomba,
+                action: action,
+                retry: 0,
+                timestamp: Date.now()
+            });
+
+            persistPendingOps();
+            updateSyncBadge();
+        }
+
+        // ============================================================
+        //  FLUSH PENDING - kirim semua operasi pending sebagai SATU batch POST
+        // ============================================================
+        async function flushPendingSync(buttonEl, opts = {}) {
+            const { manual = false, skipOverlay = false } = opts;
+
+            if (isSyncing) {
+                if (manual) toastInfo('Sedang menyinkronkan', 'Tunggu proses sync saat ini selesai.');
+                return;
+            }
+            if (pendingSyncOps.length === 0) {
+                if (manual) toastInfo('Tidak ada perubahan', 'Semua data sudah tersinkron.');
+                return;
+            }
+
+            isSyncing = true;
+            lastSyncFailed = false;
+            updateSyncBadge();
+
+            if (buttonEl) setButtonLoading(buttonEl, true, 'Menyinkronkan...');
+
+            if (!skipOverlay && (pendingSyncOps.length >= 3 || manual)) {
+                showSyncOverlay('Menyinkronkan Data', `Mengirim ${pendingSyncOps.length} perubahan ke Google Sheet...`, {
+                    progress: 10
+                });
+            }
+
+            const opsToSend = pendingSyncOps.slice();
+            const payload = {
+                action: "batch",
+                jenjang: currentLembaga.jenjang,
+                lembaga: currentLembaga.nama,
+                kelas: currentKelas,
+                operations: opsToSend.map(op => ({
+                    nama: op.nama,
+                    lomba: op.lomba,
+                    action: op.action
+                }))
+            };
+
+            try {
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    updateSyncOverlay('Mengirim data ke server...', { progress: 40 });
+                }
+
+                const res = await fetchWithTimeout(GAS_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const result = await res.json();
+                if (result.status !== "success") {
+                    throw new Error(result.message || "Server mengembalikan error.");
+                }
+
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    updateSyncOverlay('Memproses di Google Sheet...', { progress: 80 });
+                }
+
+                // Hapus operasi yang berhasil dari queue.
+                // Untuk simplicity, jika batch sukses (status:success) kita anggap semua sukses
+                // KECUALI yang individual gagal (result.results[i].ok === false).
+                const failedOps = [];
+                if (Array.isArray(result.results)) {
+                    result.results.forEach((r, i) => {
+                        if (!r.ok) {
+                            failedOps.push(opsToSend[i]);
+                        }
+                    });
+                }
+
+                // Hapus yang berhasil
+                pendingSyncOps = pendingSyncOps.filter(op => !opsToSend.includes(op));
+                // Kembalikan yang gagal ke queue (untuk retry berikutnya)
+                if (failedOps.length > 0) {
+                    failedOps.forEach(op => {
+                        if (!pendingSyncOps.includes(op)) pendingSyncOps.push(op);
+                    });
+                }
+
+                persistPendingOps();
+                lastSyncAt = Date.now();
+                lastSyncFailed = failedOps.length > 0;
+                persistLastSync();
+
+                const successCount = result.success != null ? result.success : (opsToSend.length - failedOps.length);
+                const failedCount = failedOps.length;
+
+                if (failedCount > 0) {
+                    toastWarn('Sebagian sync gagal', `${successCount} berhasil, ${failedCount} gagal. Akan di-retry otomatis.`,
+                        { duration: 6000 });
+                    // Auto-retry setelah delay
+                    setTimeout(() => {
+                        if (pendingSyncOps.length > 0 && !isSyncing) {
+                            flushPendingSync(null, { skipOverlay: true });
+                        }
+                    }, RETRY_DELAYS[0]);
+                } else {
+                    if (manual || opsToSend.length >= 3) {
+                        toastSuccess('Berhasil tersinkron', `${successCount} perubahan tersimpan ke Google Sheet dalam ${result.duration_ms || '?'}ms.`);
+                    }
+                }
+
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    updateSyncOverlay('Selesai!', { progress: 100 });
+                    setTimeout(hideSyncOverlay, 600);
+                }
+
+            } catch (err) {
+                console.error('flushPendingSync error:', err);
+                lastSyncFailed = true;
+
+                // Tandai retry count
+                pendingSyncOps.forEach(op => {
+                    if (opsToSend.includes(op)) op.retry = (op.retry || 0) + 1;
+                });
+                persistPendingOps();
+
+                const willRetry = pendingSyncOps.some(op => op.retry < MAX_RETRY);
+                toastError(
+                    'Gagal menyinkronkan',
+                    `${err.message}${willRetry ? ' - Akan di-retry otomatis.' : ' - Periksa koneksi lalu coba lagi.'}`,
+                    {
+                        duration: 8000,
+                        actions: willRetry ? [] : [
+                            { label: 'Coba Lagi', primary: true, onClick: () => flushPendingSync(null, { manual: true }) }
+                        ]
+                    }
+                );
+
+                // Auto-retry dengan exponential backoff
+                if (willRetry) {
+                    const delayIdx = Math.min(pendingSyncOps[0]?.retry || 0, RETRY_DELAYS.length - 1);
+                    setTimeout(() => {
+                        if (pendingSyncOps.length > 0 && !isSyncing) {
+                            flushPendingSync(null, { skipOverlay: true });
+                        }
+                    }, RETRY_DELAYS[delayIdx]);
+                }
+
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    hideSyncOverlay();
+                }
+
+            } finally {
+                isSyncing = false;
+                if (buttonEl) setButtonLoading(buttonEl, false);
+                updateSyncBadge();
+            }
+        }
+
+        // ============================================================
+        //  INIT
+        // ============================================================
         window.onload = async () => {
+            loadPendingOps();
+            updateSyncBadge();
+
             const saved = localStorage.getItem("app_audisi_session");
             if (saved) {
                 try {
@@ -202,12 +903,18 @@
                     if (session.kelas) {
                         currentKelas = session.kelas;
                         loadSantriData();
-                        
-                        showSyncOverlay();
+
+                        showSyncOverlay('Memuat Data', 'Mengambil data pendaftaran dari Google Sheet...', { indeterminate: true });
                         await loadRegistrationsFromGas();
                         hideSyncOverlay();
-                        
+
                         showScreen("dashboard");
+
+                        // Jika ada pending ops dari sesi sebelumnya, coba flush
+                        if (pendingSyncOps.length > 0) {
+                            toastInfo('Memproses perubahan tertunda', `${pendingSyncOps.length} perubahan akan dikirim.`);
+                            setTimeout(() => flushPendingSync(null, { skipOverlay: true }), 1500);
+                        }
                     } else {
                         renderKelasOptions();
                         showScreen("kelas");
@@ -215,35 +922,42 @@
                 } catch (err) {
                     console.error("Gagal memulihkan sesi:", err);
                     localStorage.removeItem("app_audisi_session");
+                    showScreen("gender");
                 }
+            } else {
+                setSyncBadgeState('idle', 'Belum sync');
             }
+
+            // Online/offline listener
+            window.addEventListener('online', () => {
+                toastSuccess('Koneksi internet kembali', 'Sistem akan menyinkronkan ulang data tertunda.');
+                if (pendingSyncOps.length > 0 && !isSyncing) {
+                    setTimeout(() => flushPendingSync(null, { skipOverlay: true }), 500);
+                }
+            });
+            window.addEventListener('offline', () => {
+                toastWarn('Koneksi internet terputus', 'Perubahan akan disimpan lokal dan dikirim saat online kembali.');
+            });
         };
 
-        function showSyncOverlay() {
-            const overlay = document.getElementById('sync-overlay');
-            overlay.classList.remove('hidden');
-            overlay.classList.add('flex');
-        }
-
-        function hideSyncOverlay() {
-            const overlay = document.getElementById('sync-overlay');
-            overlay.classList.add('hidden');
-            overlay.classList.remove('flex');
-        }
-
         function showScreen(screenId) {
-            if(screenId !== 'rekap') {
+            if (screenId !== 'rekap') {
                 previousScreen = screenId;
             }
             ["screen-gender", "screen-lembaga", "screen-kelas", "screen-dashboard", "screen-rekap"].forEach(id => {
-                document.getElementById(id).classList.add("hidden");
+                const el = document.getElementById(id);
+                el.classList.add("hidden");
+                el.classList.remove('screen-fade-in');
             });
-            document.getElementById(`screen-${screenId}`).classList.remove("hidden");
-            
+            const target = document.getElementById(`screen-${screenId}`);
+            target.classList.remove("hidden");
+            target.classList.add('screen-fade-in');
+
             if (screenId === "dashboard") {
                 document.getElementById("dash-lembaga").innerText = currentLembaga.nama;
                 document.getElementById("dash-kelas").innerText = currentKelas;
                 setMode('lomba');
+                updateSyncBadge();
             }
         }
 
@@ -257,7 +971,7 @@
                 localStorage.removeItem("app_audisi_session");
                 showScreen("gender");
             } else if (pwd !== null) {
-                alert("Password Salah!");
+                toastError("Password Salah!", "Coba lagi.");
             }
         }
 
@@ -265,12 +979,12 @@
             const listDiv = document.getElementById("list-lembaga");
             listDiv.innerHTML = "";
             const filtered = LEMBAGA.filter(l => l.gender === gender);
-            
+
             const disabledIds = ["sd_sembalun_pa", "sd_sembalun_pi", "smp_sumbawa_pa", "smp_sumbawa_pi"];
 
             filtered.forEach(lembaga => {
                 const btn = document.createElement("button");
-                
+
                 if (disabledIds.includes(lembaga.id)) {
                     btn.disabled = true;
                     btn.className = "p-4 border rounded-lg text-left bg-gray-100 opacity-60 cursor-not-allowed shadow-sm";
@@ -280,7 +994,7 @@
                     btn.innerHTML = `<span class="block font-bold text-gray-800">${lembaga.nama}</span><span class="text-xs text-gray-500">${lembaga.jenjang}</span>`;
                     btn.onclick = () => setLembaga(lembaga);
                 }
-                
+
                 listDiv.appendChild(btn);
             });
             showScreen("lembaga");
@@ -309,14 +1023,14 @@
             return {};
         }
 
-function renderKelasOptions() {
+        function renderKelasOptions() {
             const classDiv = document.getElementById("list-kelas");
             classDiv.innerHTML = "";
-            
+
             let db = getDBForLembaga(currentLembaga.id);
 
             if (Object.keys(db).length === 0) {
-                alert("Database santri untuk lembaga ini belum dimuat.");
+                toastError("Database tidak ditemukan", `Database santri untuk lembaga "${currentLembaga.nama}" belum dimuat.`);
                 return;
             }
 
@@ -329,54 +1043,70 @@ function renderKelasOptions() {
                     localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga, kelas: currentKelas }));
                     loadSantriData(db[kls]);
 
-                    showSyncOverlay();
-                    
-                    // Tidak pakai await panjang di sini
-                    setTimeout(async () => {
-                        try {
-                            const berhasil = await loadRegistrationsFromGas();
-                            if (!berhasil) {
-                                console.warn("Peringatan: Gagal memuat data lama dari server.");
-                            }
-                        } finally {
-                            hideSyncOverlay();
-                            // Render ulang data pada card jika pengguna sedang berada di halaman tersebut
-                            if(!document.getElementById("mode-santri").classList.contains("hidden")) searchSantri();
-                            if(!document.getElementById("mode-lomba").classList.contains("hidden")) setMode('lomba');
+                    setSyncBadgeState('loading', 'Memuat data...');
+                    showSyncOverlay('Memuat Data', 'Mengambil data pendaftaran dari Google Sheet...', { indeterminate: true });
+
+                    // Pindah layar DULU agar UI responsif, lalu sync di background
+                    showScreen("dashboard");
+
+                    try {
+                        const berhasil = await loadRegistrationsFromGas();
+                        if (!berhasil) {
+                            toastWarn('Gagal memuat data lama', 'Aplikasi tetap bisa dipakai, perubahan akan tetap tersimpan.');
+                        } else {
+                            // Refresh tampilan setelah data lama dimuat
+                            if (!document.getElementById("mode-santri").classList.contains("hidden")) searchSantri();
+                            if (!document.getElementById("mode-lomba").classList.contains("hidden")) setMode('lomba');
                         }
-                    }, 10);
-                    
-                    // Langsung pindah layar, jangan biarkan user menunggu layar putih
-                    showScreen("dashboard"); 
+                    } finally {
+                        hideSyncOverlay();
+                        updateSyncBadge();
+
+                        // Jika ada pending ops, flush
+                        if (pendingSyncOps.length > 0) {
+                            setTimeout(() => flushPendingSync(null, { skipOverlay: true }), 800);
+                        }
+                    }
                 };
                 classDiv.appendChild(btn);
             });
         }
 
         function gantiKelas() {
-            localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
-            currentKelas = "";
-            renderKelasOptions();
-            showScreen("kelas");
+            // Sebelum ganti kelas, pastikan semua pending sudah dikirim
+            if (pendingSyncOps.length > 0) {
+                toastInfo('Menyinkronkan dulu', `${pendingSyncOps.length} perubahan akan dikirim sebelum ganti kelas.`);
+                flushPendingSync(null, { manual: true }).then(() => {
+                    localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
+                    currentKelas = "";
+                    renderKelasOptions();
+                    showScreen("kelas");
+                });
+            } else {
+                localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
+                currentKelas = "";
+                renderKelasOptions();
+                showScreen("kelas");
+            }
         }
 
         function loadSantriData(dataArr) {
-            if(dataArr) {
+            if (dataArr) {
                 listSantriAktif = dataArr;
             } else {
                 let db = getDBForLembaga(currentLembaga.id);
                 listSantriAktif = db[currentKelas] || [];
             }
-            
+
             listSantriAktif.forEach(s => {
-                if(typeof stateEntry[s] === 'undefined') stateEntry[s] = [];
+                if (typeof stateEntry[s] === 'undefined') stateEntry[s] = [];
             });
         }
 
         function setMode(mode) {
             const btnLomba = document.getElementById("btn-mode-lomba");
             const btnSantri = document.getElementById("btn-mode-santri");
-            
+
             if (mode === 'lomba') {
                 btnLomba.className = "flex-1 py-3 bg-white text-green-700 font-bold rounded-lg border border-green-200 shadow-sm transition";
                 btnSantri.className = "flex-1 py-3 bg-white text-gray-600 font-semibold rounded-lg border border-gray-200 transition hover:bg-gray-50";
@@ -402,7 +1132,6 @@ function renderKelasOptions() {
         }
 
         async function loadRegistrationsFromGas() {
-            // Reset state hanya untuk santri pada kelas yang sedang aktif.
             listSantriAktif.forEach(s => stateEntry[s] = []);
 
             const params = new URLSearchParams({
@@ -413,7 +1142,9 @@ function renderKelasOptions() {
             });
 
             try {
-                const res = await fetch(`${GAS_URL}?${params.toString()}`, {
+                updateSyncOverlay('Menghubungi Google Sheet...', {});
+
+                const res = await fetchWithTimeout(`${GAS_URL}?${params.toString()}`, {
                     method: "GET",
                     cache: "no-store"
                 });
@@ -425,8 +1156,10 @@ function renderKelasOptions() {
                     throw new Error(result.message || "Server mengembalikan error");
                 }
 
+                const loaded = (result.data || []).length;
+                updateSyncOverlay(`Memproses ${loaded} data pendaftaran...`, {});
+
                 (result.data || []).forEach(item => {
-                    // Hanya masukkan santri yang memang ada di database kelas aktif.
                     if (!stateEntry[item.nama]) return;
 
                     const cabang = item.cabang || findCabangForLomba(item.lomba);
@@ -438,10 +1171,17 @@ function renderKelasOptions() {
                     }
                 });
 
-                console.log("Pendaftaran lama berhasil dimuat:", result.data?.length || 0);
+                lastSyncAt = Date.now();
+                persistLastSync();
+                lastSyncFailed = false;
+                updateSyncBadge();
+
+                console.log(`Pendaftaran lama berhasil dimuat: ${loaded} dalam ${result.duration_ms || '?'}ms`);
                 return true;
             } catch (err) {
                 console.error("Gagal memuat pendaftaran dari Google Sheet:", err);
+                lastSyncFailed = true;
+                updateSyncBadge();
                 return false;
             }
         }
@@ -451,17 +1191,16 @@ function renderKelasOptions() {
             const container = document.getElementById("mode-lomba");
             container.innerHTML = "";
             const jenjangLomba = MATA_LOMBA[currentLembaga.jenjang];
-            
+
             for (let cabang in jenjangLomba) {
                 const wrapper = document.createElement("div");
                 wrapper.innerHTML = `<h3 class="font-bold text-lg text-gray-700 border-b pb-2 mb-3">Cabang ${cabang}</h3>`;
                 const grid = document.createElement("div");
                 grid.className = "grid grid-cols-1 md:grid-cols-2 gap-4";
-                
+
                 let countLomba = 0;
 
                 jenjangLomba[cabang].forEach(lomba => {
-                    // LOGIKA PEMISAH SD KELAS 1-3 DAN 4-6
                     if (currentLembaga.jenjang === "SD") {
                         const isKelasBawah = /^[123]/.test(currentKelas);
                         const isKelasAtas = /^[456]/.test(currentKelas);
@@ -472,15 +1211,24 @@ function renderKelasOptions() {
                     countLomba++;
                     const card = document.createElement("div");
                     card.className = "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between";
+
+                    // Hitung jumlah pendaftar untuk lomba ini dari stateEntry
+                    let pesertaCount = 0;
+                    listSantriAktif.forEach(s => {
+                        if (stateEntry[s] && stateEntry[s].some(l => l.nama === lomba)) pesertaCount++;
+                    });
+
                     card.innerHTML = `
-                        <h4 class="font-semibold text-gray-800 mb-4 text-sm">${lomba}</h4>
-                        <button onclick="openModalLomba('${lomba}', '${cabang}')" class="w-full py-2 bg-green-50 text-green-700 font-semibold rounded border border-green-200 hover:bg-green-100 transition text-sm">Kelola Peserta</button>
+                        <div class="flex justify-between items-start mb-4">
+                            <h4 class="font-semibold text-gray-800 text-sm flex-1">${lomba}</h4>
+                            ${pesertaCount > 0 ? `<span class="ml-2 inline-flex items-center justify-center min-w-[24px] h-6 px-2 bg-green-100 text-green-700 text-xs font-bold rounded-full">${pesertaCount}</span>` : ''}
+                        </div>
+                        <button onclick="openModalLomba('${lomba.replace(/'/g, "\\'")}', '${cabang}')" class="w-full py-2 bg-green-50 text-green-700 font-semibold rounded border border-green-200 hover:bg-green-100 transition text-sm">Kelola Peserta</button>
                     `;
                     grid.appendChild(card);
                 });
-                
-                // Hanya tampilkan cabang jika ada lomba yang lolos filter
-                if(countLomba > 0) {
+
+                if (countLomba > 0) {
                     wrapper.appendChild(grid);
                     container.appendChild(wrapper);
                 }
@@ -489,15 +1237,15 @@ function renderKelasOptions() {
 
         function openModalLomba(lomba, cabang) {
             currentModalContext = 'lomba';
-            currentLombaAktif = { nama: lomba, cabang: cabang }; 
+            currentLombaAktif = { nama: lomba, cabang: cabang };
             document.getElementById("modal-title").innerText = "Peserta: " + lomba;
             const content = document.getElementById("modal-content");
             content.innerHTML = "";
-            
+
             listSantriAktif.forEach((santri, index) => {
                 const lombaTerpilih = stateEntry[santri];
                 const isDiLombaIni = lombaTerpilih.find(l => l.nama === lomba) !== undefined;
-                
+
                 let isDisabled = false;
                 let infoText = "";
                 let bgClass = "hover:bg-gray-50";
@@ -517,16 +1265,16 @@ function renderKelasOptions() {
 
                 if (lombaTerpilih.length > 0 && !isDisabled) {
                     const listNamaLomba = lombaTerpilih.filter(l => l.nama !== lomba).map(l => l.nama).join(", ");
-                    if(listNamaLomba) {
+                    if (listNamaLomba) {
                         infoText = `<span class="text-[11px] text-blue-500 font-medium block mt-1">Sudah ikut: ${listNamaLomba}</span>`;
                     }
                 }
 
                 const label = document.createElement("label");
                 label.className = `p-3 border rounded-lg flex items-center gap-4 transition ${isDisabled ? bgClass : 'cursor-pointer ' + bgClass}`;
-                
+
                 label.innerHTML = `
-                    <input type="checkbox" value="${santri}" class="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-green-500 modal-checkbox" 
+                    <input type="checkbox" value="${santri.replace(/"/g, '&quot;')}" class="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-green-500 modal-checkbox"
                     ${isDiLombaIni ? "checked" : ""} ${isDisabled ? "disabled" : ""}>
                     <div class="flex-1 leading-tight">
                         <span class="font-semibold text-sm text-gray-800">${santri}</span>
@@ -535,15 +1283,19 @@ function renderKelasOptions() {
                 `;
                 content.appendChild(label);
             });
-            
+
             document.getElementById("btn-simpan-modal").onclick = simpanDariModalLomba;
             document.getElementById("modal").classList.remove("hidden");
+            document.getElementById("modal").classList.add("flex");
         }
 
-        function simpanDariModalLomba() {
+        async function simpanDariModalLomba() {
             const checkboxes = document.querySelectorAll('.modal-checkbox');
-            let adaPerubahan = false;
-            
+            let addedCount = 0;
+            let removedCount = 0;
+
+            const btnSimpan = document.getElementById("btn-simpan-modal");
+
             checkboxes.forEach(chk => {
                 const santri = chk.value;
                 const isChecked = chk.checked;
@@ -551,18 +1303,33 @@ function renderKelasOptions() {
 
                 if (isChecked && idxDiState === -1) {
                     stateEntry[santri].push(currentLombaAktif);
-                    kirimDataKeGas(santri, currentLombaAktif.nama, "add");
-                    adaPerubahan = true;
+                    queueSyncOp(santri, currentLombaAktif.nama, "add");
+                    addedCount++;
                 } else if (!isChecked && idxDiState !== -1) {
                     stateEntry[santri].splice(idxDiState, 1);
-                    kirimDataKeGas(santri, currentLombaAktif.nama, "remove");
-                    adaPerubahan = true;
+                    queueSyncOp(santri, currentLombaAktif.nama, "remove");
+                    removedCount++;
                 }
             });
 
-            if (adaPerubahan) alert("Perubahan peserta berhasil disimpan!");
+            const totalChanges = addedCount + removedCount;
+            if (totalChanges === 0) {
+                closeModal();
+                toastInfo('Tidak ada perubahan', 'Tidak ada data yang berubah.');
+                return;
+            }
+
+            // Tutup modal dulu agar UI responsive
             closeModal();
-            if(!document.getElementById("mode-santri").classList.contains("hidden")) searchSantri();
+            renderCardsLomba(); // refresh peserta count
+
+            // Lalu sync ke server
+            await flushPendingSync(btnSimpan, { manual: false });
+
+            // Bila ada error sinkronisasi dan sync belum selesai, badge akan tetap menunjukkan "Gagal"
+            if (pendingSyncOps.length === 0 && !lastSyncFailed) {
+                toastSuccess('Perubahan tersimpan', `${addedCount} ditambahkan, ${removedCount} dihapus.`);
+            }
         }
 
         // ================= MODE 2: ENTRY VIA SANTRI =================
@@ -570,21 +1337,27 @@ function renderKelasOptions() {
             const keyword = document.getElementById("search-santri").value.toLowerCase();
             const container = document.getElementById("list-santri-search");
             container.innerHTML = "";
-            
+
             const filtered = listSantriAktif.filter(s => s.toLowerCase().includes(keyword));
-            
+
             filtered.forEach(santri => {
                 const lombaTerpilih = stateEntry[santri];
                 const item = document.createElement("div");
                 item.className = "p-4 border rounded-xl flex flex-col sm:flex-row justify-between sm:items-center gap-3 bg-white";
-                
-                let textInfo = lombaTerpilih.length > 0 
-                    ? `<span class="text-blue-600 font-semibold">${lombaTerpilih.map(l => l.nama).join("<br>")}</span>` 
+
+                // Cek apakah ada operasi pending untuk santri ini
+                const hasPending = pendingSyncOps.some(op => op.nama === santri);
+                const pendingBadge = hasPending
+                    ? `<span class="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-semibold ml-2"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full pulse-dot"></span>pending sync</span>`
+                    : '';
+
+                let textInfo = lombaTerpilih.length > 0
+                    ? `<span class="text-blue-600 font-semibold">${lombaTerpilih.map(l => l.nama).join("<br>")}</span>`
                     : `<span class="text-gray-400">Belum ada lomba dipilih</span>`;
-                
+
                 item.innerHTML = `
                     <div class="w-full sm:w-1/2">
-                        <p class="font-bold text-gray-800">${santri}</p>
+                        <p class="font-bold text-gray-800">${santri}${pendingBadge}</p>
                         <p class="text-xs mt-1 leading-relaxed">${textInfo}</p>
                     </div>
                     <div class="flex sm:w-auto items-center">
@@ -593,6 +1366,10 @@ function renderKelasOptions() {
                 `;
                 container.appendChild(item);
             });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<p class="text-center text-gray-400 py-6">Tidak ada santri ditemukan untuk "${keyword}".</p>`;
+            }
         }
 
         function openModalSantri(santriStr) {
@@ -601,31 +1378,30 @@ function renderKelasOptions() {
             document.getElementById("modal-title").innerText = "Kelola Lomba: " + santriStr;
             const content = document.getElementById("modal-content");
             content.innerHTML = "";
-            
+
             const lombaTerpilih = stateEntry[santriStr];
             const jenjangLomba = MATA_LOMBA[currentLembaga.jenjang];
-            
+
             for (let cabang in jenjangLomba) {
                 const divCabang = document.createElement("div");
                 divCabang.innerHTML = `<h4 class="font-bold text-gray-700 bg-gray-100 p-2 rounded text-sm mb-2">Cabang ${cabang}</h4>`;
-                
+
                 const isCabangTerisi = lombaTerpilih.find(l => l.cabang === cabang) !== undefined;
                 const batasPenuh = lombaTerpilih.length >= 2;
-                
+
                 let countLomba = 0;
 
                 jenjangLomba[cabang].forEach(lomba => {
-                    // LOGIKA PEMISAH SD KELAS 1-3 DAN 4-6
                     if (currentLembaga.jenjang === "SD") {
                         const isKelasBawah = /^[123]/.test(currentKelas);
                         const isKelasAtas = /^[456]/.test(currentKelas);
                         if (isKelasBawah && lomba.includes("(4-6)")) return;
                         if (isKelasAtas && lomba.includes("(1-3)")) return;
                     }
-                    
+
                     countLomba++;
                     const isChecked = lombaTerpilih.find(l => l.nama === lomba) !== undefined;
-                    
+
                     let isDisabled = false;
                     let textRed = "";
                     if (!isChecked) {
@@ -641,10 +1417,10 @@ function renderKelasOptions() {
                     const label = document.createElement("label");
                     label.className = `flex items-center gap-3 p-2 border-b ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`;
                     label.innerHTML = `
-                        <input type="checkbox" value="${lomba}" data-cabang="${cabang}" class="w-4 h-4 text-green-600 modal-santri-checkbox" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
+                        <input type="checkbox" value="${lomba.replace(/"/g, '&quot;')}" data-cabang="${cabang}" class="w-4 h-4 text-green-600 modal-santri-checkbox" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
                         <span class="text-sm">${lomba} <span class="text-red-500 text-[10px]">${textRed}</span></span>
                     `;
-                    
+
                     const chk = label.querySelector('input');
                     chk.addEventListener('change', () => {
                         updateStateTempDanRefreshModal(chk.value, chk.dataset.cabang, chk.checked);
@@ -652,118 +1428,148 @@ function renderKelasOptions() {
 
                     divCabang.appendChild(label);
                 });
-                
-                if(countLomba > 0) content.appendChild(divCabang);
+
+                if (countLomba > 0) content.appendChild(divCabang);
             }
 
             document.getElementById("btn-simpan-modal").onclick = simpanDariModalSantri;
             document.getElementById("modal").classList.remove("hidden");
+            document.getElementById("modal").classList.add("flex");
         }
 
         function updateStateTempDanRefreshModal(lomba, cabang, isChecked) {
             if (isChecked) {
-                stateEntry[currentSantriAktif].push({nama: lomba, cabang: cabang});
-                kirimDataKeGas(currentSantriAktif, lomba, "add");
+                stateEntry[currentSantriAktif].push({ nama: lomba, cabang: cabang });
+                queueSyncOp(currentSantriAktif, lomba, "add");
             } else {
                 const idx = stateEntry[currentSantriAktif].findIndex(l => l.nama === lomba);
-                stateEntry[currentSantriAktif].splice(idx, 1);
-                kirimDataKeGas(currentSantriAktif, lomba, "remove");
+                if (idx >= 0) stateEntry[currentSantriAktif].splice(idx, 1);
+                queueSyncOp(currentSantriAktif, lomba, "remove");
             }
-            openModalSantri(currentSantriAktif); 
+            updateSyncBadge();
+            // Refresh modal untuk update disabled state
+            openModalSantri(currentSantriAktif);
         }
 
-        function simpanDariModalSantri() {
+        async function simpanDariModalSantri() {
+            const btnSimpan = document.getElementById("btn-simpan-modal");
+
+            // Tutup modal dulu
             closeModal();
             searchSantri();
+
+            // Flush pending jika ada
+            if (pendingSyncOps.length > 0) {
+                await flushPendingSync(btnSimpan, { manual: false });
+                if (pendingSyncOps.length === 0 && !lastSyncFailed) {
+                    toastSuccess('Perubahan tersimpan', `Data lomba ${currentSantriAktif} berhasil disinkronkan.`);
+                }
+            } else {
+                toastInfo('Tidak ada perubahan', 'Tidak ada data yang berubah.');
+            }
         }
 
         // ================= KOMUNIKASI GAS & REKAP =================
+        // Legacy: tetap dipertahankan untuk kompatibilitas, tapi sekarang via queue
         async function kirimDataKeGas(namaSantri, namaLomba, action) {
-            const payload = {
-                jenjang: currentLembaga.jenjang,
-                lembaga: currentLembaga.nama,
-                kelas: currentKelas,
-                nama: namaSantri,
-                lomba: namaLomba,
-                action: action
-            };
+            queueSyncOp(namaSantri, namaLomba, action);
+            // Auto-flush untuk operasi tunggal (asynchronous, tidak menunggu)
+            if (!isSyncing && pendingSyncOps.length > 0) {
+                // Debounce: tunggu 800ms untuk batch dengan operasi lain
+                if (window._autoFlushTimer) clearTimeout(window._autoFlushTimer);
+                window._autoFlushTimer = setTimeout(() => {
+                    if (pendingSyncOps.length > 0 && !isSyncing) {
+                        flushPendingSync(null, { skipOverlay: true });
+                    }
+                }, 800);
+            }
+            return true;
+        }
+
+        function closeModal() {
+            const modal = document.getElementById("modal");
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
+        }
+
+        // ================= CEK KONEKSI SERVER =================
+        async function cekKoneksiServer() {
+            const btn = event?.target;
+            if (btn) setButtonLoading(btn, true, 'Mengecek...');
 
             try {
-                const res = await fetch(GAS_URL, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "text/plain;charset=utf-8"
-                    },
-                    body: JSON.stringify(payload)
-                });
+                const params = new URLSearchParams({ action: "ping" });
+                const t0 = Date.now();
+                const res = await fetchWithTimeout(`${GAS_URL}?${params.toString()}`, {
+                    method: "GET",
+                    cache: "no-store"
+                }, 10000);
 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
                 const result = await res.json();
-                if (result.status !== "success" || result.updated !== true) {
-                    throw new Error(result.message || "Baris/kolom lomba tidak ditemukan di Google Sheet");
-                }
+                const rtt = Date.now() - t0;
 
-                console.log("Berhasil:", action, namaSantri, namaLomba);
-                return true;
-            } catch (e) {
-                console.error("Gagal menyimpan ke Google Sheet:", e);
-                alert(`Gagal menyimpan "${namaSantri}" pada lomba "${namaLomba}".\n\n${e.message}`);
-                return false;
+                if (result.status === "success") {
+                    toastSuccess('Server terhubung', `Respon: ${rtt}ms. Server time: ${new Date(result.server_time).toLocaleTimeString('id-ID')}.`);
+                } else {
+                    throw new Error(result.message || 'Respon tidak valid');
+                }
+            } catch (err) {
+                toastError('Gagal terhubung', err.message);
+            } finally {
+                if (btn) setButtonLoading(btn, false);
             }
         }
 
-        function closeModal() {
-            document.getElementById("modal").classList.add("hidden");
-        }
-
         // ================= REKAP DASHBOARD =================
-        function bukaDashboardRekap() {
+        async function bukaDashboardRekap() {
             showScreen("rekap");
             document.getElementById("rekap-loading").classList.remove("hidden");
             document.getElementById("rekap-content").classList.add("hidden");
             document.getElementById("rekap-content").innerHTML = "";
 
-            fetch(GAS_URL)
-                .then(res => res.json())
-                .then(result => {
-                    document.getElementById("rekap-loading").classList.add("hidden");
-                    if(result.status === "success") {
-                        renderRekapUI(result.data);
-                    } else {
-                        document.getElementById("rekap-content").innerHTML = `<p class="text-red-500">Gagal memuat data: ${result.message}</p>`;
-                        document.getElementById("rekap-content").classList.remove("hidden");
-                    }
-                })
-                .catch(err => {
-                    document.getElementById("rekap-loading").classList.add("hidden");
-                    document.getElementById("rekap-content").innerHTML = `<p class="text-red-500">Gagal terhubung ke server.</p>`;
+            try {
+                const res = await fetchWithTimeout(GAS_URL, { method: "GET", cache: "no-store" });
+                const result = await res.json();
+                document.getElementById("rekap-loading").classList.add("hidden");
+
+                if (result.status === "success") {
+                    renderRekapUI(result.data);
+                    const cachedAt = result.cached_at ? new Date(result.cached_at).toLocaleTimeString('id-ID') : '';
+                    toastInfo('Rekap dimuat', cachedAt ? `Data cache dari ${cachedAt}.` : 'Data terbaru.');
+                } else {
+                    document.getElementById("rekap-content").innerHTML = `<p class="text-red-500">Gagal memuat data: ${result.message}</p>`;
                     document.getElementById("rekap-content").classList.remove("hidden");
-                });
+                }
+            } catch (err) {
+                document.getElementById("rekap-loading").classList.add("hidden");
+                document.getElementById("rekap-content").innerHTML = `<p class="text-red-500">Gagal terhubung ke server: ${err.message}</p>`;
+                document.getElementById("rekap-content").classList.remove("hidden");
+            }
         }
 
         function renderRekapUI(dataRekap) {
             const container = document.getElementById("rekap-content");
             container.innerHTML = "";
-            
+
             const orderTingkat = ["SD", "SMP", "SMA", "PGMI"];
-            
+
             orderTingkat.forEach(tingkat => {
                 const keyPutra = `${tingkat}_PUTRA`;
                 const keyPutri = `${tingkat}_PUTRI`;
-                
+
                 if (dataRekap[keyPutra] || dataRekap[keyPutri]) {
                     const block = document.createElement("div");
                     block.className = "mb-8 border rounded-xl overflow-hidden shadow-sm";
-                    
+
                     const header = document.createElement("div");
                     header.className = "bg-blue-800 text-white p-3 font-bold text-lg text-center";
                     header.innerText = `TINGKAT ${tingkat}`;
                     block.appendChild(header);
-                    
+
                     const grid = document.createElement("div");
-                    // KHUSUS PGMI HANYA ADA 1 KOLOM (PUTRI SAJA)
-                    if(tingkat === "PGMI") {
+                    if (tingkat === "PGMI") {
                         grid.className = "grid grid-cols-1";
                         const colPutri = createColumnRekap("PUTRI", dataRekap[keyPutri], tingkat);
                         grid.appendChild(colPutri);
@@ -774,7 +1580,7 @@ function renderKelasOptions() {
                         grid.appendChild(colPutra);
                         grid.appendChild(colPutri);
                     }
-                    
+
                     block.appendChild(grid);
                     container.appendChild(block);
                 }
@@ -786,7 +1592,7 @@ function renderKelasOptions() {
             const div = document.createElement("div");
             div.className = "p-4 bg-gray-50 h-full";
             div.innerHTML = `<h4 class="font-bold text-center mb-4 text-blue-700">${genderTitle}</h4>`;
-            
+
             if (!dataGender || Object.keys(dataGender).length === 0) {
                 div.innerHTML += `<p class="text-sm text-center text-gray-400">Belum ada pendaftar</p>`;
                 return div;
@@ -796,10 +1602,10 @@ function renderKelasOptions() {
             const lombaStruktur = MATA_LOMBA[tingkat];
 
             orderCabang.forEach(cabang => {
-                if(lombaStruktur[cabang]) {
+                if (lombaStruktur[cabang]) {
                     let hasData = false;
                     let htmlList = `<ul class="space-y-1 mb-4">`;
-                    
+
                     lombaStruktur[cabang].forEach(lombaName => {
                         if (dataGender[lombaName]) {
                             hasData = true;
@@ -809,9 +1615,9 @@ function renderKelasOptions() {
                             </li>`;
                         }
                     });
-                    
+
                     htmlList += `</ul>`;
-                    
+
                     if (hasData) {
                         div.innerHTML += `<h5 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-4 border-b-2 border-gray-300 inline-block">Cabang ${cabang}</h5>`;
                         div.innerHTML += htmlList;
