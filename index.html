@@ -274,10 +274,9 @@
 
         <!-- LAYAR 3: Pilih Kelas -->
         <div id="screen-kelas" class="hidden bg-white rounded-xl shadow-sm p-6 transition">
-            <h2 class="text-xl font-semibold mb-4 border-b pb-2 flex justify-between items-center">
-                Pilih Kelas
-                <button onclick="adminBackLembaga()" class="text-sm bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 font-bold">Admin: Ganti Lembaga</button>
-            </h2>
+            <div id="header-pilih-kelas" class="mb-4 border-b pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <!-- Konten header akan dirender oleh JS agar bisa menyisipkan info persentase -->
+            </div>
             <div id="list-kelas" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
         </div>
 
@@ -368,7 +367,7 @@
         // ============================================================
         //  KONFIGURASI
         // ============================================================
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbw2tlqWYBASgffuFIX6WzWalXnVE5QIP1fIdaON2dKRsc3bLGIgueUxFASJsBFQdHQZ/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxGnekyUFJBsHp8nsP2ghynRIQER1hUy0mwwCaOn9G1dFwKCkvSgyu1alD5mzK_sijF/exec";
         const FETCH_TIMEOUT_MS = 30000;     // 30 detik per request
         const MAX_RETRY = 3;                 // maksimum retry per operasi
         const RETRY_DELAYS = [1500, 3000, 6000]; // ms
@@ -403,12 +402,12 @@
             },
             "SMP": {
                 "Bahasa": ["[SMP] Pidato B.Indo", "[SMP] Puisi B.Indo", "[SMP] Pidato B.Arab", "[SMP] Cerita B.Arab", "[SMP] Syair B.Arab", "[SMP] Pidato B.Inggris", "[SMP] Story Telling"],
-                "UTHQ": ["[SMP] Tahfizh 3 Juz", "[SMP] Tahfizh 5 Juz (1-5)", "[SMP] Tahfizh 5 Juz (26-30)", "[SMP] Tahfizh 10 Juz (1-10)", "[SMP] Tahfizh 10 Juz (1-5, 26-30)", "[SMP] Tahfizh 10 Juz (21-30)", "[SMP] Tahfizh 15 Juz (1-15)", "[SMP] Tahfizh 15 Juz (16-30)"],
+                "UTHQ": ["[SMP] Tahfizh 3 Juz (1-3)", "[SMP] Tahfizh 3 Juz (28-30)", "[SMP] Tahfizh 5 Juz (1-5)", "[SMP] Tahfizh 5 Juz (26-30)", "[SMP] Tahfizh 10 Juz (1-10)", "[SMP] Tahfizh 10 Juz (1-5, 26-30)", "[SMP] Tahfizh 10 Juz (21-30)", "[SMP] Tahfizh 15 Juz (1-15)", "[SMP] Tahfizh 15 Juz (16-30)"],
                 "KLIK": ["[SMP] Resensi Buku"]
             },
             "SMA": {
                 "Bahasa": ["[SMA] Pidato B.Indo", "[SMA] Puisi B.Indo", "[SMA] Pidato B.Arab", "[SMA] Cerita B.Arab", "[SMA] Syair B.Arab", "[SMA] Qira'atul Kutub", "[SMA] Hifzhul Mutun", "[SMA] Pidato B.Inggris", "[SMA] Story Telling"],
-                "UTHQ": ["[SMA] Tahfizh 5 Juz (1-5)", "[SMA] Tahfizh 5 Juz (26-30)", "[SMA] Tahfizh 10 Juz (1-10)", "[SMA] Tahfizh 10 Juz (1-5, 26-30)", "[SMA] Tahfizh 10 Juz (21-30)", "[SMA] Tahfizh 15 Juz (1-15)", "[SMA] Tahfizh 15 Juz (16-30)"],
+                "UTHQ": ["[SMA] Tahfizh 3 Juz (1-3)", "[SMA] Tahfizh 3 Juz (28-30)", "[SMA] Tahfizh 5 Juz (1-5)", "[SMA] Tahfizh 5 Juz (26-30)", "[SMA] Tahfizh 10 Juz (1-10)", "[SMA] Tahfizh 10 Juz (1-5, 26-30)", "[SMA] Tahfizh 10 Juz (21-30)", "[SMA] Tahfizh 15 Juz (1-15)", "[SMA] Tahfizh 15 Juz (16-30)"],
                 "KLIK": ["[SMA] Majalah Dinding", "[SMA] Resensi Buku", "[SMA] Esai", "[SMA] Khutbah Jum'at"]
             },
             "PGMI": {
@@ -426,6 +425,11 @@
         let currentModalContext = "";
         let currentSantriAktif = "";
         let previousScreen = "";
+
+        // ============================================================
+        //  STATE TAMBAHAN UNTUK PERSENTASE DAN EXPORT
+        // ============================================================
+        let allRegistrationsData = []; // Menyimpan semua pendaftar
 
         // ============================================================
         //  SYNC QUEUE - Antrian operasi yang belum terkirim ke server
@@ -838,6 +842,9 @@
                     if (manual || opsToSend.length >= 3) {
                         toastSuccess('Berhasil tersinkron', `${successCount} perubahan tersimpan ke Google Sheet dalam ${result.duration_ms || '?'}ms.`);
                     }
+                    
+                    // TAMBAHAN: Update data rekapitulasi di background agar persentase selalu terupdate setelah sync berhasil
+                    setTimeout(fetchAllRegistrations, 1000); 
                 }
 
                 if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
@@ -894,6 +901,11 @@
         window.onload = async () => {
             loadPendingOps();
             updateSyncBadge();
+
+            // TAMBAHAN: Mengambil data persentase dan rekapitulasi secara menyeluruh saat web pertama kali dimuat
+            showSyncOverlay('Memuat Data Utama', 'Mengambil data populasi lembaga...', { indeterminate: true });
+            await fetchAllRegistrations();
+            hideSyncOverlay();
 
             const saved = localStorage.getItem("app_audisi_session");
             if (saved) {
@@ -990,8 +1002,22 @@
                     btn.className = "p-4 border rounded-lg text-left bg-gray-100 opacity-60 cursor-not-allowed shadow-sm";
                     btn.innerHTML = `<span class="block font-bold text-gray-500">${lembaga.nama}</span><span class="text-xs text-red-500 font-semibold">Belum Ada Data</span>`;
                 } else {
-                    btn.className = "p-4 border rounded-lg text-left bg-white hover:bg-green-50 focus:ring focus:ring-green-200 transition shadow-sm";
-                    btn.innerHTML = `<span class="block font-bold text-gray-800">${lembaga.nama}</span><span class="text-xs text-gray-500">${lembaga.jenjang}</span>`;
+                    // TAMBAHAN: Dapatkan nilai statisik untuk progress bar (persentase)
+                    let stats = getStatsLembaga(lembaga.id, lembaga.nama);
+                    
+                    btn.className = "p-4 border rounded-lg text-left bg-white hover:bg-green-50 focus:ring focus:ring-green-200 transition shadow-sm relative overflow-hidden";
+                    btn.innerHTML = `
+                        <div class="relative z-10">
+                            <span class="block font-bold text-gray-800">${lembaga.nama}</span>
+                            <span class="text-xs text-gray-500 mb-2 block">${lembaga.jenjang}</span>
+                            
+                            <!-- TAMBAHAN: Progress bar -->
+                            <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1 mt-1">
+                                <div class="bg-green-500 h-1.5 rounded-full" style="width: ${stats.pct}%"></div>
+                            </div>
+                            <span class="text-[10px] font-bold text-gray-600">Pendaftar: ${stats.regCount} / ${stats.popCount} (${stats.pct}%)</span>
+                        </div>
+                    `;
                     btn.onclick = () => setLembaga(lembaga);
                 }
 
@@ -1034,10 +1060,40 @@
                 return;
             }
 
+            // TAMBAHAN: Update info header kelas beserta persentase sekolah & tombol XLS
+            let statsLembaga = getStatsLembaga(currentLembaga.id, currentLembaga.nama);
+            const headerKelas = document.getElementById("header-pilih-kelas");
+            if (headerKelas) {
+                headerKelas.innerHTML = `
+                    <div>
+                        <h2 class="text-xl font-semibold m-0">Pilih Kelas</h2>
+                        <div class="text-[11px] font-semibold text-green-700 mt-1 block">
+                            Total Pendaftar Lembaga: ${statsLembaga.regCount} / ${statsLembaga.popCount} (${statsLembaga.pct}%)
+                        </div>
+                    </div>
+                    <div class="flex gap-2 flex-wrap sm:flex-nowrap mt-3 sm:mt-0">
+                        ${statsLembaga.regCount > 0 ? `<button onclick="downloadExcelLembaga('${currentLembaga.nama}')" class="text-xs bg-green-600 text-white px-3 py-1.5 rounded shadow hover:bg-green-700 font-bold whitespace-nowrap">⬇️ Donlot Rekap XLS</button>` : ''}
+                        <button onclick="adminBackLembaga()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded hover:bg-red-200 font-bold whitespace-nowrap">Admin: Ganti Lembaga</button>
+                    </div>
+                `;
+            }
+
             Object.keys(db).forEach(kls => {
                 const btn = document.createElement("button");
-                btn.className = "py-3 px-4 border rounded-lg font-bold text-gray-700 hover:bg-green-500 hover:text-white transition shadow-sm";
-                btn.innerText = kls;
+                // TAMBAHAN: Perhitungan persentase per kelas
+                let statsKelas = getStatsKelas(currentLembaga.id, currentLembaga.nama, kls);
+                
+                btn.className = "py-3 px-4 border rounded-lg font-bold text-gray-700 hover:bg-green-500 hover:text-white transition shadow-sm relative";
+                
+                btn.innerHTML = `
+                    <div class="mb-1 text-base text-center">${kls}</div>
+                    <!-- TAMBAHAN: Progress bar -->
+                    <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1 mt-2">
+                        <div class="bg-blue-500 h-1.5 rounded-full" style="width: ${statsKelas.pct}%"></div>
+                    </div>
+                    <div class="text-[10px] text-gray-500 font-semibold text-center">${statsKelas.regCount} / ${statsKelas.popCount} (${statsKelas.pct}%)</div>
+                `;
+                
                 btn.onclick = async () => {
                     currentKelas = kls;
                     localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga, kelas: currentKelas }));
@@ -1206,6 +1262,18 @@
                         const isKelasAtas = /^[456]/.test(currentKelas);
                         if (isKelasBawah && lomba.includes("(4-6)")) return;
                         if (isKelasAtas && lomba.includes("(1-3)")) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMP
+                    if (lomba.includes("[SMP] Tahfizh 3 Juz")) {
+                        const allowedSmp = ["smp_fullday", "smp_sumbawa_pa", "smp_sumbawa_pi"];
+                        if (!allowedSmp.includes(currentLembaga.id)) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMA
+                    if (lomba.includes("[SMA] Tahfizh 3 Juz")) {
+                        const allowedSma = ["sma_fullday"];
+                        if (!allowedSma.includes(currentLembaga.id)) return;
                     }
 
                     countLomba++;
@@ -1397,6 +1465,18 @@
                         const isKelasAtas = /^[456]/.test(currentKelas);
                         if (isKelasBawah && lomba.includes("(4-6)")) return;
                         if (isKelasAtas && lomba.includes("(1-3)")) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMP
+                    if (lomba.includes("[SMP] Tahfizh 3 Juz")) {
+                        const allowedSmp = ["smp_fullday", "smp_sumbawa_pa", "smp_sumbawa_pi"];
+                        if (!allowedSmp.includes(currentLembaga.id)) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMA
+                    if (lomba.includes("[SMA] Tahfizh 3 Juz")) {
+                        const allowedSma = ["sma_fullday"];
+                        if (!allowedSma.includes(currentLembaga.id)) return;
                     }
 
                     countLomba++;
@@ -1591,10 +1671,22 @@
         function createColumnRekap(genderTitle, dataGender, tingkat) {
             const div = document.createElement("div");
             div.className = "p-4 bg-gray-50 h-full";
-            div.innerHTML = `<h4 class="font-bold text-center mb-4 text-blue-700">${genderTitle}</h4>`;
+            
+            // TAMBAHAN: Progress Bar Persentase Kategori Rekap
+            let stats = getStatsJenjangGender(tingkat, genderTitle);
+            
+            div.innerHTML = `
+                <div class="text-center mb-4 border-b pb-2">
+                    <h4 class="font-bold text-blue-700">${genderTitle}</h4>
+                    <p class="text-[11px] text-gray-600 font-semibold mt-1">Total Pendaftar: ${stats.regCount} / ${stats.popCount} (${stats.pct}%)</p>
+                    <div class="w-2/3 mx-auto mt-2 bg-gray-200 rounded-full h-1.5">
+                        <div class="bg-green-500 h-1.5 rounded-full" style="width: ${stats.pct}%"></div>
+                    </div>
+                </div>
+            `;
 
             if (!dataGender || Object.keys(dataGender).length === 0) {
-                div.innerHTML += `<p class="text-sm text-center text-gray-400">Belum ada pendaftar</p>`;
+                div.innerHTML += `<p class="text-sm text-center text-gray-400 mt-4">Belum ada pendaftar</p>`;
                 return div;
             }
 
@@ -1630,6 +1722,129 @@
         function tutupRekap() {
             showScreen(previousScreen || "gender");
         }
+
+        // ============================================================
+        //  FUNGSI TAMBAHAN BARU (UNTUK PERSENTASE DAN DOWNLOAD)
+        // ============================================================
+
+        async function fetchAllRegistrations() {
+            try {
+                const res = await fetchWithTimeout(`${GAS_URL}?action=rekap_all_registrations`);
+                const result = await res.json();
+                if (result.status === "success") {
+                    allRegistrationsData = result.data;
+                }
+            } catch (err) {
+                console.warn("Gagal mengambil data global:", err);
+            }
+        }
+
+        function getStatsLembaga(idLembaga, namaLembaga) {
+            let db = getDBForLembaga(idLembaga);
+            let popCount = 0;
+            if (db) {
+                Object.values(db).forEach(arr => popCount += arr.length);
+            }
+            let regCount = 0;
+            if (allRegistrationsData && allRegistrationsData.length > 0) {
+                // Menghitung berapa banyak user (unik) yang sudah mendaftar di lembaga ini
+                regCount = allRegistrationsData.filter(r => r.lembaga === namaLembaga).length;
+            }
+            let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
+            return { popCount, regCount, pct };
+        }
+
+        function getStatsKelas(idLembaga, namaLembaga, kelas) {
+            let db = getDBForLembaga(idLembaga);
+            let popCount = db && db[kelas] ? db[kelas].length : 0;
+            let regCount = 0;
+            if (allRegistrationsData && allRegistrationsData.length > 0) {
+                regCount = allRegistrationsData.filter(r => r.lembaga === namaLembaga && r.kelas === kelas).length;
+            }
+            let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
+            return { popCount, regCount, pct };
+        }
+
+        function getStatsJenjangGender(jenjang, gender) {
+            let popCount = 0; 
+            let regCount = 0;
+            let match = LEMBAGA.filter(l => l.jenjang === jenjang && l.gender === gender);
+            
+            match.forEach(l => {
+                let s = getStatsLembaga(l.id, l.nama);
+                popCount += s.popCount; 
+                regCount += s.regCount;
+            });
+            let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
+            return { popCount, regCount, pct };
+        }
+
+        function getCabangLomba(namaLomba, jenjang) {
+            const jenjangLomba = MATA_LOMBA[jenjang] || {};
+            for (const cabang in jenjangLomba) {
+                if (jenjangLomba[cabang].includes(namaLomba)) return cabang;
+            }
+            return "-";
+        }
+
+        function downloadExcelLembaga(lembagaNama) {
+            if (!allRegistrationsData || allRegistrationsData.length === 0) {
+                toastError("Data kosong", "Gagal memuat rekap pendaftar. Tunggu beberapa saat atau segarkan halaman.");
+                return;
+            }
+            let regLembaga = allRegistrationsData.filter(r => r.lembaga === lembagaNama);
+            if(regLembaga.length === 0) {
+                toastInfo("Masih Kosong", "Belum ada santri yang didaftarkan di lembaga ini.");
+                return;
+            }
+
+            let rows = [];
+            regLembaga.forEach(r => {
+                if (Array.isArray(r.lomba)) {
+                    r.lomba.forEach(lombaName => {
+                        let cabang = getCabangLomba(lombaName, r.jenjang);
+                        rows.push({ jenjang: r.jenjang, cabang: cabang, lomba: lombaName, kelas: r.kelas, nama: r.nama });
+                    });
+                }
+            });
+
+            // Pengurutan berlapis: Jenjang -> Cabang -> Lomba -> Kelas -> Nama
+            rows.sort((a, b) => {
+                if(a.jenjang !== b.jenjang) return a.jenjang.localeCompare(b.jenjang);
+                if(a.cabang !== b.cabang) return a.cabang.localeCompare(b.cabang);
+                if(a.lomba !== b.lomba) return a.lomba.localeCompare(b.lomba);
+                if(a.kelas !== b.kelas) return a.kelas.localeCompare(b.kelas);
+                return a.nama.localeCompare(b.nama);
+            });
+
+            let html = `
+            <html xmlns:x="urn:schemas-microsoft-com:office:excel">
+            <head><meta charset="utf-8">
+            <style>
+                th { background-color: #22c55e; color: white; border: 1px solid #ddd; padding: 5px; } 
+                td { border: 1px solid #ddd; padding: 5px; }
+            </style>
+            </head><body>
+            <h3>Rekapitulasi Pendaftar Lomba - ${lembagaNama}</h3>
+            <table>
+                <tr><th>No</th><th>Jenjang</th><th>Cabang Lomba</th><th>Mata Lomba</th><th>Kelas</th><th>Nama Santri</th></tr>`;
+
+            rows.forEach((row, idx) => {
+                html += `<tr><td>${idx+1}</td><td>${row.jenjang}</td><td>${row.cabang}</td><td>${row.lomba}</td><td>${row.kelas}</td><td>${row.nama}</td></tr>`;
+            });
+            html += `</table></body></html>`;
+
+            let blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = `Rekap_Peserta_${lembagaNama.replace(/\s+/g, '_')}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
     </script>
 </body>
 </html>
