@@ -368,7 +368,7 @@
         // ============================================================
         //  KONFIGURASI
         // ============================================================
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxGnekyUFJBsHp8nsP2ghynRIQER1hUy0mwwCaOn9G1dFwKCkvSgyu1alD5mzK_sijF/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxr7l9ijjq1Odvv2OeB75OssNnsMIai1x5fAYYNFk9MBjJmUYV-b1VP74UfTfiUj0hv/exec";
         const FETCH_TIMEOUT_MS = 30000;     // 30 detik per request
         const MAX_RETRY = 3;                 // maksimum retry per operasi
         const RETRY_DELAYS = [1500, 3000, 6000]; // ms
@@ -905,7 +905,7 @@
 
             // TAMBAHAN: Mengambil data persentase dan rekapitulasi secara menyeluruh saat web pertama kali dimuat
             showSyncOverlay('Memuat Data Utama', 'Mengambil data populasi lembaga...', { indeterminate: true });
-            await fetchAllRegistrations();
+            await fetchAllRegistrations({ silent: true }); // silent: jangan toast kalau gagal di init
             hideSyncOverlay();
 
             const saved = localStorage.getItem("app_audisi_session");
@@ -1611,15 +1611,22 @@
             document.getElementById("rekap-content").innerHTML = "";
 
             try {
+                // [FIX PERSENTASE 0%] Sebelum render, TARIK ULANG allRegistrationsData
+                // dari server. Tanpa ini, allRegistrationsData bisa kosong/stale
+                // (mis. fetch awal gagal / sudah ada pendaftar baru) sehingga
+                // getStatsJenjangGender mengembalikan regCount=0 → persentase 0%.
+                await fetchAllRegistrations();
+
                 const res = await fetchWithTimeout(GAS_URL, { method: "GET", cache: "no-store" });
                 const result = await res.json();
-                document.getElementById("rekap-loading").classList.add("hidden");
+                document.getElementById("rekap-loading").classList.remove("hidden");
 
                 if (result.status === "success") {
                     renderRekapUI(result.data);
                     const cachedAt = result.cached_at ? new Date(result.cached_at).toLocaleTimeString('id-ID') : '';
                     toastInfo('Rekap dimuat', cachedAt ? `Data cache dari ${cachedAt}.` : 'Data terbaru.');
                 } else {
+                    document.getElementById("rekap-loading").classList.add("hidden");
                     document.getElementById("rekap-content").innerHTML = `<p class="text-red-500">Gagal memuat data: ${result.message}</p>`;
                     document.getElementById("rekap-content").classList.remove("hidden");
                 }
@@ -1728,28 +1735,77 @@
         //  FUNGSI TAMBAHAN BARU (UNTUK PERSENTASE DAN DOWNLOAD)
         // ============================================================
 
-        async function fetchAllRegistrations() {
+                /**
+         * Ambil data semua pendaftar dari server (untuk persentase & download).
+         * @param {Object} opts
+         * @param {boolean} opts.silent - jika true, jangan tampilkan toast error
+         *   (untuk pemanggilan background seperti saat init page).
+         */
+        async function fetchAllRegistrations(opts) {
+            const silent = opts && opts.silent;
             try {
-                const res = await fetchWithTimeout(`${GAS_URL}?action=rekap_all_registrations`);
+                // HANYA DITAMBAH: parameter &t= (timestamp) agar browser dipaksa mengambil data terbaru (tidak nyangkut di cache)
+                const timestamp = new Date().getTime();
+                const res = await fetchWithTimeout(`${GAS_URL}?action=rekap_all_registrations&t=${timestamp}`, {
+                    method: 'GET',
+                    cache: 'no-store'
+                });
                 const result = await res.json();
-                if (result.status === "success") {
+                if (result.status === "success" && Array.isArray(result.data)) {
                     allRegistrationsData = result.data;
+                } else {
+                    // [DIAGNOSTIK] Server merespons tapi status != "success" atau
+                    // data bukan array. Tampilkan ke user (kecuali mode silent)
+                    // agar masalah tidak tersembunyi di console. Penyebab umum:
+                    // error GAS "Argument too large: value" saat CacheService.put
+                    // gagal karena payload > 100KB.
+                    console.error("fetchAllRegistrations: response tidak valid:", result);
+                    if (!silent) {
+                        toastError(
+                            'Gagal memuat rekap',
+                            'Server: ' + (result.message || JSON.stringify(result).slice(0, 200))
+                        );
+                    }
                 }
             } catch (err) {
                 console.warn("Gagal mengambil data global:", err);
+                if (!silent) {
+                    toastError('Gagal memuat rekap', 'Network: ' + err.message);
+                }
             }
         }
 
-        function getStatsLembaga(idLembaga, namaLembaga) {
+        /**
+         * Format timestamp ISO-8601 (UTC) ke tanggal+jam Indonesia.
+         * Tangani juga kasus: string non-ISO, Date object, atau kosong.
+         * @param {string|Date} ts
+         * @returns {string} "YYYY-MM-DD HH:mm:ss" atau "" jika kosong
+         */
+        function formatTimestampID(ts) {
+            if (!ts) return "";
+            let d;
+            try {
+                d = (ts instanceof Date) ? ts : new Date(ts);
+            } catch (e) {
+                return String(ts);
+            }
+            if (isNaN(d.getTime())) return String(ts);
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+                   `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+                function getStatsLembaga(idLembaga, namaLembaga) {
             let db = getDBForLembaga(idLembaga);
             let popCount = 0;
             if (db) {
                 Object.values(db).forEach(arr => popCount += arr.length);
             }
             let regCount = 0;
-            if (allRegistrationsData && allRegistrationsData.length > 0) {
-                // Menghitung berapa banyak user (unik) yang sudah mendaftar di lembaga ini
-                regCount = allRegistrationsData.filter(r => r.lembaga === namaLembaga).length;
+            if (Array.isArray(allRegistrationsData) && allRegistrationsData.length > 0) {
+                // HANYA DIUBAH: Pencocokan nama dijadikan huruf kecil (.toLowerCase) agar "SD IT" dan "Sd it" tetap terhitung
+                let cleanNama = namaLembaga.trim().toLowerCase();
+                regCount = allRegistrationsData.filter(r => (r.lembaga || "").trim().toLowerCase() === cleanNama).length;
             }
             let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
             return { popCount, regCount, pct };
@@ -1759,8 +1815,14 @@
             let db = getDBForLembaga(idLembaga);
             let popCount = db && db[kelas] ? db[kelas].length : 0;
             let regCount = 0;
-            if (allRegistrationsData && allRegistrationsData.length > 0) {
-                regCount = allRegistrationsData.filter(r => r.lembaga === namaLembaga && r.kelas === kelas).length;
+            if (Array.isArray(allRegistrationsData) && allRegistrationsData.length > 0) {
+                // HANYA DIUBAH: Pencocokan nama dan kelas dijadikan huruf kecil agar presisi
+                let cleanNama = namaLembaga.trim().toLowerCase();
+                let cleanKelas = kelas.trim().toLowerCase();
+                regCount = allRegistrationsData.filter(r => 
+                    (r.lembaga || "").trim().toLowerCase() === cleanNama && 
+                    (r.kelas || "").trim().toLowerCase() === cleanKelas
+                ).length;
             }
             let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
             return { popCount, regCount, pct };
@@ -1804,7 +1866,15 @@
                 if (Array.isArray(r.lomba)) {
                     r.lomba.forEach(lombaName => {
                         let cabang = getCabangLomba(lombaName, r.jenjang);
-                        rows.push({ jenjang: r.jenjang, cabang: cabang, lomba: lombaName, kelas: r.kelas, nama: r.nama });
+                        // Setiap baris mendapat timestamp dari santri (per-baris sheet).
+                        rows.push({
+                            jenjang: r.jenjang,
+                            cabang: cabang,
+                            lomba: lombaName,
+                            kelas: r.kelas,
+                            nama: r.nama,
+                            timestamp: formatTimestampID(r.timestamp)
+                        });
                     });
                 }
             });
@@ -1828,10 +1898,10 @@
             </head><body>
             <h3>Rekapitulasi Pendaftar Lomba - ${lembagaNama}</h3>
             <table>
-                <tr><th>No</th><th>Jenjang</th><th>Cabang Lomba</th><th>Mata Lomba</th><th>Kelas</th><th>Nama Santri</th></tr>`;
+                <tr><th>No</th><th>Jenjang</th><th>Cabang Lomba</th><th>Mata Lomba</th><th>Kelas</th><th>Nama Santri</th><th>Timestamp</th></tr>`;
 
             rows.forEach((row, idx) => {
-                html += `<tr><td>${idx+1}</td><td>${row.jenjang}</td><td>${row.cabang}</td><td>${row.lomba}</td><td>${row.kelas}</td><td>${row.nama}</td></tr>`;
+                html += `<tr><td>${idx+1}</td><td>${row.jenjang}</td><td>${row.cabang}</td><td>${row.lomba}</td><td>${row.kelas}</td><td>${row.nama}</td><td style="white-space:nowrap">${row.timestamp}</td></tr>`;
             });
             html += `</table></body></html>`;
 
@@ -1864,6 +1934,11 @@
                 return;
             }
 
+            // Ambil waktu penarikan data saat ini
+            const now = new Date();
+            const opsiTanggal = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            const waktuCetak = now.toLocaleDateString('id-ID', opsiTanggal) + ' Pukul ' + now.toLocaleTimeString('id-ID');
+
             let html = `
             <html xmlns:x="urn:schemas-microsoft-com:office:excel">
             <head>
@@ -1875,24 +1950,28 @@
                     .cabang { background-color: #dcfce7; font-weight: bold; color: #166534; }
                     .lomba { background-color: #bbf7d0; font-weight: bold; color: #064e3b; }
                     .header-col { background-color: #f3f4f6; font-weight: bold; text-align: center; }
+                    .title { font-size: 18px; font-weight: bold; text-align: center; border: none; }
+                    .waktu { font-size: 12px; font-style: italic; color: #4b5563; text-align: center; border: none; }
                 </style>
             </head>
             <body>
-                <h2>Rekapitulasi Total Pendaftar Festival Abu Hurairah ke-13</h2>
-                <table>`;
+                <table>
+                    <tr><td colspan="4" class="title">Rekapitulasi Total Pendaftar Festival Abu Hurairah ke-13</td></tr>
+                    <tr><td colspan="4" class="waktu">Data ditarik pada: ${waktuCetak}</td></tr>
+                    <tr><td colspan="4" style="border: none;">&nbsp;</td></tr>`;
 
-            // Looping berdasarkan setiap lembaga (Ini otomatis memisahkan Putra dan Putri)
+            // Looping berdasarkan setiap lembaga (Otomatis memisahkan Putra dan Putri)
             LEMBAGA.forEach(lembaga => {
                 let regLembaga = allRegistrationsData.filter(r => r.lembaga === lembaga.nama);
                 if (regLembaga.length === 0) return; // Skip kalau belum ada yang daftar di lembaga ini
 
                 // Header Lembaga
-                html += `<tr><td colspan="3" class="lembaga">${lembaga.nama} (JENJANG ${lembaga.jenjang})</td></tr>`;
+                html += `<tr><td colspan="4" class="lembaga">${lembaga.nama} (JENJANG ${lembaga.jenjang})</td></tr>`;
 
                 const cabangLomba = MATA_LOMBA[lembaga.jenjang];
                 for (let cabang in cabangLomba) {
                     let cabangHasData = false;
-                    let cabangHtml = `<tr><td colspan="3" class="cabang">CABANG: ${cabang}</td></tr>`;
+                    let cabangHtml = `<tr><td colspan="4" class="cabang">CABANG: ${cabang}</td></tr>`;
                     let lombaHtml = "";
 
                     // Looping per mata lomba di dalam cabang tersebut
@@ -1908,12 +1987,17 @@
                             });
 
                             // Header Lomba + Total Anak
-                            lombaHtml += `<tr><td colspan="3" class="lomba">Mata Lomba: ${lombaName} | Total: ${students.length} Santri</td></tr>`;
-                            lombaHtml += `<tr><td class="header-col" style="width: 40px;">No</td><td class="header-col" style="width: 300px;">Nama Santri</td><td class="header-col" style="width: 120px;">Kelas</td></tr>`;
+                            lombaHtml += `<tr><td colspan="4" class="lomba">Mata Lomba: ${lombaName} | Total: ${students.length} Santri</td></tr>`;
+                            lombaHtml += `<tr>
+                                <td class="header-col" style="width: 40px;">No</td>
+                                <td class="header-col" style="width: 300px;">Nama Santri</td>
+                                <td class="header-col" style="width: 120px;">Kelas</td>
+                                <td class="header-col" style="width: 180px;">Timestamp</td>
+                            </tr>`;
                             
                             // Data Siswa
                             students.forEach((s, idx) => {
-                                lombaHtml += `<tr><td style="text-align:center">${idx + 1}</td><td>${s.nama}</td><td style="text-align:center">${s.kelas}</td></tr>`;
+                                lombaHtml += `<tr><td style="text-align:center">${idx + 1}</td><td>${s.nama}</td><td style="text-align:center">${s.kelas}</td><td style="white-space:nowrap;text-align:center">${formatTimestampID(s.timestamp)}</td></tr>`;
                             });
                         }
                     });
@@ -1924,7 +2008,7 @@
                     }
                 }
                 // Baris kosong untuk pemisah antar lembaga
-                html += `<tr><td colspan="3" style="border:none;">&nbsp;</td></tr>`;
+                html += `<tr><td colspan="4" style="border:none;">&nbsp;</td></tr>`;
             });
 
             html += `</table></body></html>`;
@@ -1934,7 +2018,11 @@
             let url = URL.createObjectURL(blob);
             let a = document.createElement('a');
             a.href = url;
-            a.download = `Data_Rekap_Audisi_Keseluruhan.xls`;
+            
+            // Tambahkan format jam pada nama file agar saat didownload file tidak saling menimpa
+            const fileTime = now.getHours() + "" + String(now.getMinutes()).padStart(2, '0');
+            a.download = `Rekap_Audisi_Keseluruhan_${fileTime}.xls`;
+            
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
@@ -1943,7 +2031,7 @@
             // Kembalikan status tombol
             btn.innerHTML = originalText;
             btn.disabled = false;
-            toastSuccess("Berhasil", "File Rekap Excel berhasil didownload.");
+            toastSuccess("Berhasil", "File Rekap Excel terbaru berhasil didownload.");
         }
     </script>
 </body>
