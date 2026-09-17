@@ -316,9 +316,10 @@
 
         <!-- LAYAR 5: Rekap Dashboard -->
         <div id="screen-rekap" class="hidden bg-white rounded-xl shadow-sm p-6 transition">
-            <div class="flex justify-between items-center mb-6 border-b pb-2">
+            <div class="flex justify-between items-center mb-6 border-b pb-2 flex-wrap gap-3">
                 <h2 class="text-2xl font-bold text-gray-800">Rekapitulasi Peserta</h2>
-                <div class="flex gap-2">
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="downloadExcelRekapGlobal(event)" class="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 font-bold shadow-sm flex-shrink-0">⬇️ Donlot Semua Rekap (XLS)</button>
                     <button onclick="bukaDashboardRekap()" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200 font-semibold">Refresh</button>
                     <button onclick="tutupRekap()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">Tutup</button>
                 </div>
@@ -1844,7 +1845,106 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
+// ============================================================
+        //  FUNGSI DOWNLOAD EXCEL REKAP GLOBAL KESELURUHAN (PANITIA)
+        // ============================================================
+        async function downloadExcelRekapGlobal(event) {
+            const btn = event.currentTarget;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = "Menyiapkan XLS...";
+            btn.disabled = true;
 
+            // Pastikan kita menarik data paling terbaru dari Google Sheet sebelum di-generate
+            await fetchAllRegistrations(); 
+
+            if (!allRegistrationsData || allRegistrationsData.length === 0) {
+                toastError("Data kosong", "Gagal memuat rekap pendaftar. Tunggu beberapa saat atau segarkan halaman.");
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
+
+            let html = `
+            <html xmlns:x="urn:schemas-microsoft-com:office:excel">
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    table { border-collapse: collapse; width: 100%; font-family: sans-serif; }
+                    th, td { border: 1px solid #000; padding: 6px; }
+                    .lembaga { background-color: #166534; color: white; font-weight: bold; font-size: 14px; text-transform: uppercase; }
+                    .cabang { background-color: #dcfce7; font-weight: bold; color: #166534; }
+                    .lomba { background-color: #bbf7d0; font-weight: bold; color: #064e3b; }
+                    .header-col { background-color: #f3f4f6; font-weight: bold; text-align: center; }
+                </style>
+            </head>
+            <body>
+                <h2>Rekapitulasi Total Pendaftar Festival Abu Hurairah ke-13</h2>
+                <table>`;
+
+            // Looping berdasarkan setiap lembaga (Ini otomatis memisahkan Putra dan Putri)
+            LEMBAGA.forEach(lembaga => {
+                let regLembaga = allRegistrationsData.filter(r => r.lembaga === lembaga.nama);
+                if (regLembaga.length === 0) return; // Skip kalau belum ada yang daftar di lembaga ini
+
+                // Header Lembaga
+                html += `<tr><td colspan="3" class="lembaga">${lembaga.nama} (JENJANG ${lembaga.jenjang})</td></tr>`;
+
+                const cabangLomba = MATA_LOMBA[lembaga.jenjang];
+                for (let cabang in cabangLomba) {
+                    let cabangHasData = false;
+                    let cabangHtml = `<tr><td colspan="3" class="cabang">CABANG: ${cabang}</td></tr>`;
+                    let lombaHtml = "";
+
+                    // Looping per mata lomba di dalam cabang tersebut
+                    cabangLomba[cabang].forEach(lombaName => {
+                        let students = regLembaga.filter(r => r.lomba && r.lomba.includes(lombaName));
+                        
+                        if (students.length > 0) {
+                            cabangHasData = true;
+                            // Urutkan siswa berdasarkan Kelas, lalu berdsarkan Nama
+                            students.sort((a, b) => {
+                                if(a.kelas !== b.kelas) return a.kelas.localeCompare(b.kelas);
+                                return a.nama.localeCompare(b.nama);
+                            });
+
+                            // Header Lomba + Total Anak
+                            lombaHtml += `<tr><td colspan="3" class="lomba">Mata Lomba: ${lombaName} | Total: ${students.length} Santri</td></tr>`;
+                            lombaHtml += `<tr><td class="header-col" style="width: 40px;">No</td><td class="header-col" style="width: 300px;">Nama Santri</td><td class="header-col" style="width: 120px;">Kelas</td></tr>`;
+                            
+                            // Data Siswa
+                            students.forEach((s, idx) => {
+                                lombaHtml += `<tr><td style="text-align:center">${idx + 1}</td><td>${s.nama}</td><td style="text-align:center">${s.kelas}</td></tr>`;
+                            });
+                        }
+                    });
+
+                    // Jika ada data di cabang ini, gabungkan ke HTML Utama
+                    if (cabangHasData) {
+                        html += cabangHtml + lombaHtml;
+                    }
+                }
+                // Baris kosong untuk pemisah antar lembaga
+                html += `<tr><td colspan="3" style="border:none;">&nbsp;</td></tr>`;
+            });
+
+            html += `</table></body></html>`;
+
+            // Konversi HTML ke File Excel
+            let blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = `Data_Rekap_Audisi_Keseluruhan.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // Kembalikan status tombol
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            toastSuccess("Berhasil", "File Rekap Excel berhasil didownload.");
+        }
     </script>
 </body>
 </html>
