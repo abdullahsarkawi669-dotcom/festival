@@ -14,6 +14,8 @@
     <script src="data_ma_plus.js"></script>
     <script src="data_sd_putra.js"></script>
     <script src="data_sd_putri.js"></script>
+        <script src="data_sd_sembalun_pa.js"></script>
+        <script src="data_sd_sembalun_pi.js"></script>
     <script src="data_smp_fullday.js"></script>
     <script src="data_pgmi.js"></script>
     <script src="data_sma_ibs_bali.js"></script>
@@ -979,13 +981,157 @@
         }
 
         function adminBackLembaga() {
+            // KASUS KHUSUS: User lembaga SD IT Sembalun (Putra / Putri)
+            // Boleh saling ganti lembaga TANPA password — cukup pilih PUTRA / PUTRI.
+            // Ditambahkan juga tombol "Admin Utama" (password "agus133") untuk kembali
+            // ke halaman awal & bebas memilih lembaga apa saja.
+            if (currentLembaga && (currentLembaga.id === "sd_sembalun_pa" || currentLembaga.id === "sd_sembalun_pi")) {
+                openSwitchLembagaModal(
+                    "Ganti Lembaga SD IT Sembalun",
+                    [
+                        { id: "sd_sembalun_pa", label: "PUTRA",   color: "blue"  },
+                        { id: "sd_sembalun_pi", label: "PUTRI",   color: "pink"  }
+                    ],
+                    { showAdminUtama: true }
+                );
+                return;
+            }
+
+            // KASUS UMUM: minta password admin
             const pwd = prompt("Masukkan Password Admin:");
+            if (pwd === null) return; // user batal
+
             if (pwd === "agus133") {
+                // Password lama: aplikasi kembali ke halaman awal & bebas pilih lembaga apa saja
                 localStorage.removeItem("app_audisi_session");
                 showScreen("gender");
-            } else if (pwd !== null) {
+            } else if (pwd === "festival13admin") {
+                // Password khusus admin SMP Putri & SMA Putri: hanya boleh ganti antara dua lembaga ini
+                openSwitchLembagaModal(
+                    "Ganti Lembaga Admin (SMP Putri / SMA Putri)",
+                    [
+                        { id: "smp_putri", label: "SMP Putri", color: "pink"  },
+                        { id: "sma_putri", label: "SMA Putri", color: "purple" }
+                    ]
+                );
+            } else {
                 toastError("Password Salah!", "Coba lagi.");
             }
+        }
+
+        // ============================================================
+        //  MODAL GANTI LEMBAGA (KHUSUS)
+        // ============================================================
+        function openSwitchLembagaModal(title, options, opts = {}) {
+            const modal = document.getElementById("modal");
+            document.getElementById("modal-title").innerText = title;
+            const content = document.getElementById("modal-content");
+
+            // Peta warna Tailwind untuk tombol
+            const colorMap = {
+                blue:   { bg: "bg-blue-500",   hover: "hover:bg-blue-600",   ring: "focus:ring-blue-300"   },
+                pink:   { bg: "bg-pink-500",   hover: "hover:bg-pink-600",   ring: "focus:ring-pink-300"   },
+                purple: { bg: "bg-purple-500", hover: "hover:bg-purple-600", ring: "focus:ring-purple-300" }
+            };
+
+            // Opsional: tombol Admin Utama (password "agus133") untuk kembali ke halaman awal
+            const adminBtnHtml = opts.showAdminUtama
+                ? `
+                    <div class="mt-2 pt-4 border-t border-dashed border-gray-200">
+                        <button type="button" onclick="adminUtamaPrompt()" class="w-full py-3 px-4 rounded-lg bg-gray-700 text-white font-bold text-sm shadow hover:bg-gray-800 transition focus:outline-none focus:ring-4 focus:ring-gray-300 flex items-center justify-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12l4-4m-4 4l4 4" /></svg>
+                            Admin Utama (Kembali ke Halaman Awal)
+                        </button>
+                        <p class="text-[11px] text-gray-500 mt-1 text-center">
+                            *Khusus admin utama. Memerlukan password "agus133".
+                        </p>
+                    </div>
+                `
+                : "";
+
+            content.innerHTML = `
+                <div class="space-y-4">
+                    <p class="text-sm text-gray-600">
+                        Pilih lembaga tujuan di bawah ini. Anda akan langsung diarahkan ke layar pemilihan kelas
+                        untuk lembaga tersebut.
+                    </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-${options.length} gap-3">
+                        ${options.map(opt => {
+                            const c = colorMap[opt.color] || colorMap.blue;
+                            const isCurrent = (currentLembaga && currentLembaga.id === opt.id);
+                            const lembaga = LEMBAGA.find(l => l.id === opt.id);
+                            const namaLembaga = lembaga ? lembaga.nama : opt.id;
+                            const btnClass = isCurrent
+                                ? `py-6 px-4 rounded-xl text-white font-bold text-lg shadow-md opacity-60 cursor-not-allowed ${c.bg}`
+                                : `py-6 px-4 rounded-xl text-white font-bold text-lg shadow-md transition focus:outline-none focus:ring-4 ${c.bg} ${c.hover} ${c.ring}`;
+                            return `
+                                <button type="button" ${isCurrent ? "disabled" : `onclick="switchLembagaTo('${opt.id}')"`} class="${btnClass}">
+                                    <span class="block text-2xl mb-1">${opt.label}</span>
+                                    <span class="block text-xs font-normal text-white/90">${namaLembaga}</span>
+                                    ${isCurrent ? `<span class="block text-[10px] font-bold text-white/80 mt-2">Lembaga Aktif</span>` : ""}
+                                </button>
+                            `;
+                        }).join("")}
+                    </div>
+                    <p class="text-xs text-gray-500">
+                        *Tombol yang menandai "Lembaga Aktif" menunjukkan lembaga yang sedang Anda gunakan sekarang.
+                        Klik lembaga lain untuk berpindah.
+                    </p>
+                    ${adminBtnHtml}
+                </div>
+            `;
+
+            // Sembunyikan tombol "Simpan Pilihan" karena modal ini hanya untuk ganti lembaga
+            const btnSave = document.getElementById("btn-simpan-modal");
+            if (btnSave) btnSave.style.display = "none";
+
+            modal.classList.remove("hidden");
+            modal.classList.add("flex");
+        }
+
+        // Prompt password untuk Admin Utama (khusus dipakai dari dalam modal ganti lembaga)
+        function adminUtamaPrompt() {
+            const pwd = prompt("Masukkan Password Admin Utama:");
+            if (pwd === null) return; // user batal
+            if (pwd === "agus133") {
+                closeModal();
+                localStorage.removeItem("app_audisi_session");
+                // Reset state lokal supaya tidak ada sisa data dari lembaga sebelumnya
+                stateEntry = {};
+                currentKelas = "";
+                toastSuccess("Mode Admin Utama", "Anda kembali ke halaman awal. Bebas memilih lembaga.");
+                showScreen("gender");
+            } else {
+                toastError("Password Salah!", "Coba lagi.");
+            }
+        }
+
+        function switchLembagaTo(lembagaId) {
+            const lembaga = LEMBAGA.find(l => l.id === lembagaId);
+            if (!lembaga) {
+                toastError("Lembaga tidak ditemukan", `ID: ${lembagaId}`);
+                return;
+            }
+            // Tutup modal terlebih dahulu
+            closeModal();
+            // Pulihkan tombol Simpan Pilihan (agar tidak hilang saat modal lain dibuka)
+            const btnSave = document.getElementById("btn-simpan-modal");
+            if (btnSave) btnSave.style.display = "";
+
+            // Terapkan lembaga baru & simpan session
+            currentLembaga = lembaga;
+            localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
+
+            // Reset state entry lokal supaya tidak ikut terbawa dari lembaga lama
+            stateEntry = {};
+            // Reset kelas aktif supaya renderKelasOptions tampil bersih
+            currentKelas = "";
+
+            toastSuccess("Berhasil ganti lembaga", `Sekarang aktif: ${currentLembaga.nama}`);
+
+            // Render ulang daftar kelas dan arahkan ke layar pemilih kelas
+            renderKelasOptions();
+            showScreen("kelas");
         }
 
         function setGender(gender) {
@@ -993,7 +1139,7 @@
             listDiv.innerHTML = "";
             const filtered = LEMBAGA.filter(l => l.gender === gender);
 
-            const disabledIds = ["sd_sembalun_pa", "sd_sembalun_pi", "smp_sumbawa_pa", "smp_sumbawa_pi"];
+            const disabledIds = ["smp_sumbawa_pa", "smp_sumbawa_pi"];<!--"sd_sembalun_pa", "sd_sembalun_pi", -->
 
             filtered.forEach(lembaga => {
                 const btn = document.createElement("button");
@@ -1040,6 +1186,8 @@
             if (idLembaga === "sma_fullday" && typeof DATA_SANTRI_SMA_FULLDAY_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_FULLDAY_PUTRA_ABHUR_MATARAM;
             if (idLembaga === "sma_putri" && typeof DATA_SANTRI_SMA_IT_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_IT_PUTRI_ABHUR_MATARAM;
             if (idLembaga === "ma_plus" && typeof DATA_SANTRI_MA_PLUS_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_MA_PLUS_PUTRA_ABHUR_MATARAM;
+                        if (idLembaga === "sd_sembalun_pa" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRA !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRA;
+                        if (idLembaga === "sd_sembalun_pi" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRI !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRI;
             if (idLembaga === "sd_putra" && typeof DATA_SANTRI_SD_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SD_PUTRA_ABHUR_MATARAM;
             if (idLembaga === "sd_putri" && typeof DATA_SANTRI_SD_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SD_PUTRI_ABHUR_MATARAM;
             if (idLembaga === "smp_fullday" && typeof DATA_SANTRI_SMP_FULLDAY_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMP_FULLDAY_PUTRA_ABHUR_MATARAM;
@@ -1571,6 +1719,9 @@
             const modal = document.getElementById("modal");
             modal.classList.add("hidden");
             modal.classList.remove("flex");
+            // Pulihkan tombol "Simpan Pilihan" jika sebelumnya disembunyikan oleh modal ganti lembaga
+            const btnSave = document.getElementById("btn-simpan-modal");
+            if (btnSave) btnSave.style.display = "";
         }
 
         // ================= CEK KONEKSI SERVER =================
