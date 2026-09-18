@@ -14,8 +14,10 @@
     <script src="data_ma_plus.js"></script>
     <script src="data_sd_putra.js"></script>
     <script src="data_sd_putri.js"></script>
-        <script src="data_sd_sembalun_pa.js"></script>
-        <script src="data_sd_sembalun_pi.js"></script>
+    <script src="data_sd_sembalun_pa.js"></script>
+    <script src="data_sd_sembalun_pi.js"></script>
+    <script src="data_smp_sumbawa_pa.js"></script>
+    <script src="data_smp_sumbawa_pi.js"></script>
     <script src="data_smp_fullday.js"></script>
     <script src="data_pgmi.js"></script>
     <script src="data_sma_ibs_bali.js"></script>
@@ -997,6 +999,22 @@
                 return;
             }
 
+            // KASUS KHUSUS: User lembaga SMP IT Abhur Sumbawa (Putra / Putri)
+            // Boleh saling ganti lembaga TANPA password — cukup pilih PUTRA / PUTRI.
+            // Tombol "Admin Utama" (password "agus133") tetap tersedia untuk kembali
+            // ke halaman awal & bebas memilih lembaga apa saja.
+            if (currentLembaga && (currentLembaga.id === "smp_sumbawa_pa" || currentLembaga.id === "smp_sumbawa_pi")) {
+                openSwitchLembagaModal(
+                    "Ganti Lembaga SMP IT Abhur Sumbawa",
+                    [
+                        { id: "smp_sumbawa_pa", label: "PUTRA", color: "blue" },
+                        { id: "smp_sumbawa_pi", label: "PUTRI", color: "pink" }
+                    ],
+                    { showAdminUtama: true }
+                );
+                return;
+            }
+
             // KASUS UMUM: minta password admin
             const pwd = prompt("Masukkan Password Admin:");
             if (pwd === null) return; // user batal
@@ -1139,7 +1157,8 @@
             listDiv.innerHTML = "";
             const filtered = LEMBAGA.filter(l => l.gender === gender);
 
-            const disabledIds = ["smp_sumbawa_pa", "smp_sumbawa_pi"];<!--"sd_sembalun_pa", "sd_sembalun_pi", -->
+            // Semua lembaga sudah aktif (SD Sembalun & SMP Sumbawa sudah ada datanya)
+            const disabledIds = [];
 
             filtered.forEach(lembaga => {
                 const btn = document.createElement("button");
@@ -1186,8 +1205,10 @@
             if (idLembaga === "sma_fullday" && typeof DATA_SANTRI_SMA_FULLDAY_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_FULLDAY_PUTRA_ABHUR_MATARAM;
             if (idLembaga === "sma_putri" && typeof DATA_SANTRI_SMA_IT_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_IT_PUTRI_ABHUR_MATARAM;
             if (idLembaga === "ma_plus" && typeof DATA_SANTRI_MA_PLUS_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_MA_PLUS_PUTRA_ABHUR_MATARAM;
-                        if (idLembaga === "sd_sembalun_pa" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRA !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRA;
-                        if (idLembaga === "sd_sembalun_pi" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRI !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRI;
+            if (idLembaga === "sd_sembalun_pa" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRA !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRA;
+            if (idLembaga === "sd_sembalun_pi" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRI !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRI;
+            if (idLembaga === "smp_sumbawa_pa" && typeof DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRA !== "undefined") return DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRA;
+            if (idLembaga === "smp_sumbawa_pi" && typeof DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRI !== "undefined") return DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRI;
             if (idLembaga === "sd_putra" && typeof DATA_SANTRI_SD_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SD_PUTRA_ABHUR_MATARAM;
             if (idLembaga === "sd_putri" && typeof DATA_SANTRI_SD_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SD_PUTRI_ABHUR_MATARAM;
             if (idLembaga === "smp_fullday" && typeof DATA_SANTRI_SMP_FULLDAY_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMP_FULLDAY_PUTRA_ABHUR_MATARAM;
