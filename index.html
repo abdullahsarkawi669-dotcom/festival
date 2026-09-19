@@ -1061,7 +1061,7 @@
                             Admin Utama (Kembali ke Halaman Awal)
                         </button>
                         <p class="text-[11px] text-gray-500 mt-1 text-center">
-                            *Khusus admin utama. Memerlukan password "agus133".
+                            <!--*Khusus admin utama. Memerlukan password "agus133".-->
                         </p>
                     </div>
                 `
@@ -1111,7 +1111,7 @@
         function adminUtamaPrompt() {
             const pwd = prompt("Masukkan Password Admin Utama:");
             if (pwd === null) return; // user batal
-            if (pwd === "agus133") {
+            if (pwd === "a133") {
                 closeModal();
                 localStorage.removeItem("app_audisi_session");
                 // Reset state lokal supaya tidak ada sisa data dari lembaga sebelumnya
