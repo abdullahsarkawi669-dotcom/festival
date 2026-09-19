@@ -243,6 +243,117 @@
         .smooth-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
         .smooth-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         .smooth-scroll::-webkit-scrollbar-track { background: transparent; }
+
+        /* ============================================================
+           STAR SHOOTER GAME OVERLAY (Hanya muncul saat admin "agus133")
+        ============================================================ */
+        #starShooterOverlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background-color: rgba(5, 5, 16, 0.55);
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            touch-action: none;
+            display: none;
+        }
+        #starShooterOverlay.active { display: block; }
+        #starShooterCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        #starShooterOverlay .ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+        #starShooterOverlay .ss-hidden { display: none !important; }
+        #starShooterOverlay h1 { font-size: 3.5rem; color: #0ff; text-shadow: 0 0 20px #0ff, 0 0 40px #0ff; margin-bottom: 20px; text-transform: uppercase; }
+        #starShooterOverlay h2 { font-size: 2.5rem; color: #f0f; text-shadow: 0 0 15px #f0f; margin-bottom: 10px; }
+        #starShooterOverlay p { font-size: 1.1rem; margin-bottom: 30px; color: #ccc; line-height: 1.5; }
+        #starShooterOverlay button {
+            pointer-events: auto;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            font-family: inherit;
+            font-weight: bold;
+            background: transparent;
+            color: #0ff;
+            border: 2px solid #0ff;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3), inset 0 0 15px rgba(0, 255, 255, 0.3);
+            text-transform: uppercase;
+        }
+        #starShooterOverlay button:hover,
+        #starShooterOverlay button:active {
+            background: #0ff;
+            color: #000;
+            box-shadow: 0 0 30px #0ff;
+        }
+        #starShooterHud {
+            position: absolute;
+            top: 20px; left: 20px; right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 10px #fff;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #starShooterHud .score-board { display: flex; flex-direction: column; gap: 5px; text-align: left; }
+        #starShooterHud .high-score { font-size: 1rem; color: #ff0; }
+        #starShooterHud .stats-panel { font-size: 0.9rem; color: #0ff; display: flex; flex-direction: column; gap: 4px; margin-top: 5px; }
+        #starShooterHud .shield-bar { display: flex; gap: 5px; }
+        #starShooterHud .shield-pip { width: 15px; height: 10px; border: 1px solid #0ff; background: transparent; }
+        #starShooterHud .shield-pip.active { background: #0ff; box-shadow: 0 0 8px #0ff; }
+        #ssPauseBtn {
+            pointer-events: auto;
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.5rem;
+            cursor: pointer;
+            text-shadow: 0 0 10px #fff;
+            box-shadow: none;
+            padding: 0;
+        }
+        #ssPauseBtn:hover { color: #0ff; background: none; box-shadow: none; }
+        #ssExitBtn {
+            position: absolute;
+            top: 20px;
+            right: 80px;
+            pointer-events: auto;
+            padding: 8px 18px;
+            font-size: 0.9rem;
+            background: rgba(255, 0, 0, 0.25);
+            color: #fff;
+            border: 2px solid #f33;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            z-index: 20;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+        }
+        #ssExitBtn:hover {
+            background: #f00;
+            color: #fff;
+            box-shadow: 0 0 20px #f00;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans">
@@ -1019,10 +1130,15 @@
             const pwd = prompt("Masukkan Password Admin:");
             if (pwd === null) return; // user batal
 
-            if (pwd === "agus133") {
+            if (pwd === "a133") {
                 // Password lama: aplikasi kembali ke halaman awal & bebas pilih lembaga apa saja
+                // Bonus: tampilkan game Star Shooter sebagai overlay hiburan admin.
+                // Setelah user menutup game (klik "X Keluar"), baru lanjut ke halaman awal.
                 localStorage.removeItem("app_audisi_session");
-                showScreen("gender");
+                openStarShooterGame(function () {
+                    // Callback setelah game ditutup
+                    showScreen("gender");
+                });
             } else if (pwd === "festival13admin") {
                 // Password khusus admin SMP Putri & SMA Putri: hanya boleh ganti antara dua lembaga ini
                 openSwitchLembagaModal(
@@ -1118,7 +1234,11 @@
                 stateEntry = {};
                 currentKelas = "";
                 toastSuccess("Mode Admin Utama", "Anda kembali ke halaman awal. Bebas memilih lembaga.");
-                showScreen("gender");
+                // Tampilkan game Star Shooter sebagai overlay hiburan admin.
+                // Setelah user menutup game (klik "X Keluar"), baru lanjut ke halaman awal.
+                openStarShooterGame(function () {
+                    showScreen("gender");
+                });
             } else {
                 toastError("Password Salah!", "Coba lagi.");
             }
@@ -2064,16 +2184,26 @@
             <html xmlns:x="urn:schemas-microsoft-com:office:excel">
             <head><meta charset="utf-8">
             <style>
-                th { background-color: #22c55e; color: white; border: 1px solid #ddd; padding: 5px; } 
+                table { border-collapse: collapse; width: 100%; font-family: sans-serif; }
+                th { background-color: #22c55e; color: white; border: 1px solid #ddd; padding: 5px; }
                 td { border: 1px solid #ddd; padding: 5px; }
+                .lembaga-header { background-color: #166534; color: white; font-weight: bold; font-size: 16px; text-transform: uppercase; text-align: center; }
+                .subtitle { background-color: #dcfce7; color: #166534; font-weight: bold; font-style: italic; text-align: center; }
+                .title { font-size: 14px; font-weight: bold; text-align: center; }
+                .waktu { font-size: 11px; font-style: italic; color: #4b5563; text-align: center; }
             </style>
             </head><body>
-            <h3>Rekapitulasi Pendaftar Lomba - ${lembagaNama}</h3>
             <table>
-                <tr><th>No</th><th>Jenjang</th><th>Cabang Lomba</th><th>Mata Lomba</th><th>Kelas</th><th>Nama Santri</th><th>Timestamp</th></tr>`;
+                <tr><td colspan="7" class="lembaga-header">${lembagaNama}</td></tr>
+                <tr><td colspan="7" class="title">Rekapitulasi Pendaftar Lomba Festival Abu Hurairah ke-13</td></tr>
+                <tr><td colspan="7" class="subtitle">Total: ${rows.length} Pendaftaran Lomba</td></tr>
+                <tr><td colspan="7" style="border: none;">&nbsp;</td></tr>
+                <tr>
+                    <th>No</th><th>Jenjang</th><th>Cabang Lomba</th><th>Mata Lomba</th><th>Kelas</th><th>Nama Santri</th><th>Timestamp</th>
+                </tr>`;
 
             rows.forEach((row, idx) => {
-                html += `<tr><td>${idx+1}</td><td>${row.jenjang}</td><td>${row.cabang}</td><td>${row.lomba}</td><td>${row.kelas}</td><td>${row.nama}</td><td style="white-space:nowrap">${row.timestamp}</td></tr>`;
+                html += `<tr><td style="text-align:center">${idx+1}</td><td style="text-align:center">${row.jenjang}</td><td>${row.cabang}</td><td>${row.lomba}</td><td style="text-align:center">${row.kelas}</td><td>${row.nama}</td><td style="white-space:nowrap">${row.timestamp}</td></tr>`;
             });
             html += `</table></body></html>`;
 
@@ -2205,6 +2335,633 @@
             btn.disabled = false;
             toastSuccess("Berhasil", "File Rekap Excel terbaru berhasil didownload.");
         }
+    </script>
+
+    <!-- ============================================================
+         STAR SHOOTER GAME OVERLAY
+         - Hanya muncul saat admin klik "Admin: Ganti Lembaga"
+           dan berhasil masukkan password "agus133"
+         - Berjalan di atas aplikasi (overlay fullscreen, z-index 9999)
+         - Tombol "X Keluar" untuk menutup & melanjutkan ke halaman awal
+    ============================================================ -->
+    <div id="starShooterOverlay">
+        <canvas id="starShooterCanvas"></canvas>
+
+        <div id="starShooterHud" class="ss-hidden">
+            <div class="score-board">
+                <span id="ssScoreDisplay">0</span>
+                <span id="ssHighScoreDisplay" class="high-score">HI: 0</span>
+                <div class="stats-panel">
+                    <div id="ssMachineryText">MACHINERY: LVL 1</div>
+                    <div style="display:flex; align-items:center; gap: 8px;">
+                        <span>SHIELD:</span>
+                        <div id="ssShieldPips" class="shield-bar"></div>
+                    </div>
+                </div>
+            </div>
+            <button id="ssPauseBtn">||</button>
+        </div>
+
+        <button id="ssExitBtn">X Keluar</button>
+
+        <div id="ssStartScreen" class="ui-layer">
+            <h1>Star Shooter</h1>
+            <p>
+                Keyboard: WASD / Arrows to move, SPACE to shoot<br>
+                Mobile: Touch &amp; drag to move and auto-shoot<br><br>
+                <span style="color:#0ff">Break stars to upgrade Machinery &amp; acquire Shields!</span><br><br>
+                <span style="color:#ff0; font-weight:bold;">Mode Admin Utama - Hiburan saat ganti lembaga</span><br>
+                <span style="color:#aaa; font-size:0.9rem;">Overlay transparan — aplikasi entry festival masih terlihat di belakang.</span><br>
+                <span style="color:#888; font-size:0.9rem;">Klik "X Keluar" di pojok kanan atas untuk menutup game &amp; kembali ke halaman awal.</span>
+            </p>
+            <button id="ssStartBtn">Play Now</button>
+        </div>
+
+        <div id="ssPauseScreen" class="ui-layer ss-hidden">
+            <h2>PAUSED</h2>
+            <button id="ssResumeBtn">Resume</button>
+        </div>
+
+        <div id="ssGameOverScreen" class="ui-layer ss-hidden">
+            <h2>SYSTEM FAILURE</h2>
+            <p id="ssFinalScoreText">Score: 0</p>
+            <button id="ssRestartBtn">Restart</button>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         STAR SHOOTER GAME LOGIC
+    ============================================================ -->
+    <script>
+    (function () {
+        'use strict';
+
+        // ===== State apakah overlay game sedang aktif (guard keyboard) =====
+        let ssOverlayActive = false;
+        let ssOnExitCallback = null; // dipanggil saat user menutup game
+
+        // ===== Element references =====
+        const ssCanvas = document.getElementById('starShooterCanvas');
+        const ssCtx = ssCanvas.getContext('2d');
+        const ssOverlay = document.getElementById('starShooterOverlay');
+        const ssUI = {
+            start: document.getElementById('ssStartScreen'),
+            pause: document.getElementById('ssPauseScreen'),
+            gameOver: document.getElementById('ssGameOverScreen'),
+            hud: document.getElementById('starShooterHud'),
+            score: document.getElementById('ssScoreDisplay'),
+            highScore: document.getElementById('ssHighScoreDisplay'),
+            finalScore: document.getElementById('ssFinalScoreText'),
+            btnStart: document.getElementById('ssStartBtn'),
+            btnResume: document.getElementById('ssResumeBtn'),
+            btnRestart: document.getElementById('ssRestartBtn'),
+            btnPause: document.getElementById('ssPauseBtn'),
+            btnExit: document.getElementById('ssExitBtn'),
+            machineryText: document.getElementById('ssMachineryText'),
+            shieldPips: document.getElementById('ssShieldPips')
+        };
+
+        // ===== Game state =====
+        let GAME_STATE = 'START';
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('starShooterHighScore') || '0', 10);
+        let width = 0, height = 0;
+        let lastTime = 0;
+        let shakeTime = 0;
+        let enemyTimer = 0;
+        let enemyInterval = 1000;
+
+        let player = null;
+        let bullets = [];
+        let enemies = [];
+        let particles = [];
+        let stars = [];
+        let powerUps = [];
+        let floatingTexts = [];
+
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, a: false, s: false, d: false, ' ': false, Escape: false };
+        const touch = { active: false, x: 0, y: 0 };
+
+        // ===== Resize =====
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            ssCanvas.width = width;
+            ssCanvas.height = height;
+        }
+        window.addEventListener('resize', () => {
+            if (ssOverlayActive) resize();
+        });
+
+        // ===== Input (guarded by ssOverlayActive) =====
+        window.addEventListener('keydown', (e) => {
+            if (!ssOverlayActive) return;
+            if (keys.hasOwnProperty(e.key)) {
+                keys[e.key] = true;
+                // Cegah scroll halaman saat game aktif
+                if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+            }
+            if (e.key === ' ' && GAME_STATE === 'PLAYING' && player) player.shoot();
+            if (e.key === 'Escape') togglePause();
+        });
+        window.addEventListener('keyup', (e) => {
+            if (!ssOverlayActive) return;
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+        });
+
+        ssCanvas.addEventListener('touchstart', (e) => {
+            if (!ssOverlayActive) return;
+            touch.active = true;
+            touch.x = e.touches[0].clientX;
+            touch.y = e.touches[0].clientY;
+            e.preventDefault();
+        }, { passive: false });
+        ssCanvas.addEventListener('touchmove', (e) => {
+            if (!ssOverlayActive || !touch.active || !player) return;
+            const dx = e.touches[0].clientX - touch.x;
+            const dy = e.touches[0].clientY - touch.y;
+            player.x += dx * 1.5;
+            player.y += dy * 1.5;
+            touch.x = e.touches[0].clientX;
+            touch.y = e.touches[0].clientY;
+            e.preventDefault();
+        }, { passive: false });
+        ssCanvas.addEventListener('touchend', () => { touch.active = false; });
+
+        // ===== Entities =====
+        class Star {
+            constructor() { this.reset(true); }
+            reset(randomY = false) {
+                this.x = Math.random() * width;
+                this.y = randomY ? Math.random() * height : -10;
+                this.size = Math.random() * 2 + 0.5;
+                this.speed = this.size * 2;
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > height) this.reset();
+            }
+            draw(ctx) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.size/3})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class Player {
+            constructor() {
+                this.size = 16;
+                this.x = width / 2;
+                this.y = height - 100;
+                this.baseSpeed = 7;
+                this.color = '#0ff';
+                this.lastShot = 0;
+                this.level = 1;
+                this.shields = 0;
+                this.maxShields = 3;
+                this.shieldAngle = 0;
+            }
+            get speed() { return this.baseSpeed + (this.level - 1) * 1.2; }
+            get fireRate() { return Math.max(70, 160 - (this.level - 1) * 20); }
+            upgrade() {
+                this.level++;
+                if (this.shields < this.maxShields) this.shields++;
+                updateHUD();
+            }
+            update() {
+                if (keys.ArrowLeft || keys.a) this.x -= this.speed;
+                if (keys.ArrowRight || keys.d) this.x += this.speed;
+                if (keys.ArrowUp || keys.w) this.y -= this.speed;
+                if (keys.ArrowDown || keys.s) this.y += this.speed;
+                if (touch.active || keys[' ']) this.shoot();
+                this.x = Math.max(this.size, Math.min(width - this.size, this.x));
+                this.y = Math.max(this.size, Math.min(height - this.size, this.y));
+                this.shieldAngle += 0.05;
+            }
+            shoot() {
+                const now = Date.now();
+                if (now - this.lastShot > this.fireRate) {
+                    if (this.level === 1) {
+                        bullets.push(new Bullet(this.x - 6, this.y - this.size, 0, -16, '#0ff', 4));
+                        bullets.push(new Bullet(this.x + 6, this.y - this.size, 0, -16, '#0ff', 4));
+                    } else if (this.level === 2) {
+                        bullets.push(new Bullet(this.x, this.y - this.size, 0, -16, '#0ff', 5));
+                        bullets.push(new Bullet(this.x - 8, this.y - this.size, -3, -15, '#0ff', 4));
+                        bullets.push(new Bullet(this.x + 8, this.y - this.size, 3, -15, '#0ff', 4));
+                    } else {
+                        bullets.push(new Bullet(this.x - 4, this.y - this.size, 0, -18, '#ff0', 5));
+                        bullets.push(new Bullet(this.x + 4, this.y - this.size, 0, -18, '#ff0', 5));
+                        bullets.push(new Bullet(this.x - 12, this.y - this.size, -5, -16, '#0ff', 4));
+                        bullets.push(new Bullet(this.x + 12, this.y - this.size, 5, -16, '#0ff', 4));
+                    }
+                    this.lastShot = now;
+                    this.y += 1.5;
+                }
+            }
+            draw(ctx) {
+                if (this.shields > 0) {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(this.shieldAngle);
+                    ctx.strokeStyle = '#0ff';
+                    ctx.lineWidth = 2;
+                    ctx.shadowBlur = 12;
+                    ctx.shadowColor = '#0ff';
+                    for (let i = 0; i < this.shields; i++) {
+                        ctx.beginPath();
+                        ctx.arc(0, 0, this.size + 10 + (i * 6), 0, Math.PI * 1.5);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y - this.size);
+                ctx.lineTo(this.x - this.size, this.y + this.size);
+                ctx.lineTo(this.x, this.y + (this.size * 0.5));
+                ctx.lineTo(this.x + this.size, this.y + this.size);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, vx, vy, color, radius) {
+                this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+                this.radius = radius; this.color = color;
+                this.markedForDeletion = false;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                if (this.y < -50 || this.x < -50 || this.x > width + 50) this.markedForDeletion = true;
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        class Enemy {
+            constructor() {
+                this.radius = Math.random() * 10 + 15;
+                this.x = Math.random() * (width - this.radius * 2) + this.radius;
+                this.y = -50;
+                this.speed = Math.random() * 2 + 2 + (score * 0.05);
+                this.color = '#f0f';
+                this.hp = Math.ceil(this.radius / 8);
+                this.markedForDeletion = false;
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > height + 50) this.markedForDeletion = true;
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y - this.radius);
+                ctx.lineTo(this.x + this.radius, this.y);
+                ctx.lineTo(this.x, this.y + this.radius);
+                ctx.lineTo(this.x - this.radius, this.y);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        class PowerUp {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.vy = 2; this.radius = 14; this.angle = 0;
+                this.markedForDeletion = false;
+            }
+            update() {
+                this.y += this.vy;
+                this.angle += 0.08;
+                if (this.y > height + 50) this.markedForDeletion = true;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.fillStyle = '#0ff';
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#0ff';
+                ctx.beginPath();
+                for (let i = 0; i < 4; i++) {
+                    ctx.lineTo(0, -this.radius);
+                    ctx.rotate(Math.PI / 4);
+                    ctx.lineTo(0, -this.radius / 3);
+                    ctx.rotate(Math.PI / 4);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color) {
+                this.x = x; this.y = y; this.text = text; this.color = color;
+                this.life = 1.0; this.vy = -1.5;
+            }
+            update() { this.y += this.vy; this.life -= 0.02; }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.font = 'bold 16px "Courier New"';
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillText(this.text, this.x - 40, this.y);
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y; this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 5 + 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.05 + 0.02;
+                this.size = Math.random() * 3 + 2;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.life -= this.decay; }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        // ===== HUD =====
+        function updateHUD() {
+            if (!player) return;
+            ssUI.machineryText.innerText = `MACHINERY: LVL ${player.level}`;
+            ssUI.shieldPips.innerHTML = '';
+            for (let i = 0; i < player.maxShields; i++) {
+                const pip = document.createElement('div');
+                pip.className = 'shield-pip' + (i < player.shields ? ' active' : '');
+                ssUI.shieldPips.appendChild(pip);
+            }
+        }
+
+        // ===== Spawn & FX =====
+        function spawnEnemy(dt) {
+            enemyTimer += dt;
+            if (enemyTimer > enemyInterval) {
+                enemies.push(new Enemy());
+                enemyTimer = 0;
+                enemyInterval = Math.max(300, 1000 - score * 10);
+            }
+        }
+        function createExplosion(x, y, color, count = 15) {
+            for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color));
+        }
+        function shakeScreen(duration) { shakeTime = duration; }
+
+        // ===== Collisions =====
+        function checkCollisions() {
+            bullets.forEach(b => {
+                enemies.forEach(e => {
+                    if (!b.markedForDeletion && !e.markedForDeletion) {
+                        const dx = b.x - e.x, dy = b.y - e.y;
+                        const dist = Math.hypot(dx, dy);
+                        if (dist < b.radius + e.radius) {
+                            b.markedForDeletion = true;
+                            e.hp--;
+                            createExplosion(b.x, b.y, '#fff', 3);
+                            if (e.hp <= 0) {
+                                e.markedForDeletion = true;
+                                createExplosion(e.x, e.y, e.color, 20);
+                                shakeScreen(5);
+                                score += 10;
+                                ssUI.score.innerText = score;
+                                if (Math.random() < 0.20) powerUps.push(new PowerUp(e.x, e.y));
+                            }
+                        }
+                    }
+                });
+            });
+
+            powerUps.forEach(p => {
+                if (!p.markedForDeletion && player) {
+                    const dx = player.x - p.x, dy = player.y - p.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < player.size + p.radius) {
+                        p.markedForDeletion = true;
+                        player.upgrade();
+                        floatingTexts.push(new FloatingText(player.x, player.y - 20, "MACHINERY + SHIELD!", "#0ff"));
+                        createExplosion(p.x, p.y, '#0ff', 25);
+                        shakeScreen(8);
+                    }
+                }
+            });
+
+            enemies.forEach(e => {
+                if (!e.markedForDeletion && player) {
+                    const dx = player.x - e.x, dy = player.y - e.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < player.size + e.radius - 2) {
+                        e.markedForDeletion = true;
+                        createExplosion(e.x, e.y, e.color, 20);
+                        if (player.shields > 0) {
+                            player.shields--;
+                            updateHUD();
+                            shakeScreen(10);
+                            floatingTexts.push(new FloatingText(player.x, player.y - 20, "SHIELD ABSORBED!", "#ff0"));
+                            createExplosion(player.x, player.y, '#0ff', 20);
+                        } else {
+                            gameOver();
+                        }
+                    }
+                }
+            });
+        }
+
+        // ===== State management =====
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < 100; i++) stars.push(new Star());
+        }
+
+        function startGame() {
+            player = new Player();
+            bullets = []; enemies = []; particles = [];
+            powerUps = []; floatingTexts = [];
+            score = 0;
+            ssUI.score.innerText = score;
+            enemyInterval = 1000;
+            enemyTimer = 0;
+            updateHUD();
+            ssUI.start.classList.add('ss-hidden');
+            ssUI.gameOver.classList.add('ss-hidden');
+            ssUI.pause.classList.add('ss-hidden');
+            ssUI.hud.classList.remove('ss-hidden');
+            GAME_STATE = 'PLAYING';
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function togglePause() {
+            if (GAME_STATE === 'PLAYING') {
+                GAME_STATE = 'PAUSED';
+                ssUI.pause.classList.remove('ss-hidden');
+            } else if (GAME_STATE === 'PAUSED') {
+                GAME_STATE = 'PLAYING';
+                ssUI.pause.classList.add('ss-hidden');
+                lastTime = performance.now();
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function gameOver() {
+            GAME_STATE = 'GAMEOVER';
+            shakeScreen(20);
+            if (player) createExplosion(player.x, player.y, player.color, 50);
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('starShooterHighScore', highScore);
+                ssUI.highScore.innerText = `HI: ${highScore}`;
+            }
+            ssUI.hud.classList.add('ss-hidden');
+            ssUI.gameOver.classList.remove('ss-hidden');
+            ssUI.finalScore.innerText = `FINAL SCORE: ${score}`;
+        }
+
+        // ===== Main loop =====
+        function gameLoop(timestamp) {
+            if (GAME_STATE === 'PAUSED') return;
+            if (!ssOverlayActive) return; // berhenti jika overlay sudah ditutup
+
+            const dt = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // Canvas transparan tiap frame — background overlay (semi-transparan)
+            // yang meneruskan view ke aplikasi entry festival di belakangnya.
+            // Catatan: trail effect (motion blur) hilang, tapi game tetap playable.
+            ssCtx.clearRect(0, 0, width, height);
+
+            ssCtx.save();
+            if (shakeTime > 0) {
+                const magnitude = (shakeTime / 20) * 10;
+                const dx = (Math.random() - 0.5) * magnitude;
+                const dy = (Math.random() - 0.5) * magnitude;
+                ssCtx.translate(dx, dy);
+                shakeTime--;
+            }
+
+            stars.forEach(s => { s.update(); s.draw(ssCtx); });
+
+            if (GAME_STATE === 'PLAYING' || GAME_STATE === 'GAMEOVER') {
+                powerUps.forEach(p => { p.update(); p.draw(ssCtx); });
+                powerUps = powerUps.filter(p => !p.markedForDeletion);
+                particles.forEach(p => { p.update(); p.draw(ssCtx); });
+                particles = particles.filter(p => p.life > 0);
+                floatingTexts.forEach(ft => { ft.update(); ft.draw(ssCtx); });
+                floatingTexts = floatingTexts.filter(ft => ft.life > 0);
+                bullets.forEach(b => { b.update(); b.draw(ssCtx); });
+                bullets = bullets.filter(b => !b.markedForDeletion);
+                enemies.forEach(e => { e.update(); e.draw(ssCtx); });
+                enemies = enemies.filter(e => !e.markedForDeletion);
+
+                if (GAME_STATE === 'PLAYING' && player) {
+                    player.update();
+                    player.draw(ssCtx);
+                    spawnEnemy(dt);
+                    checkCollisions();
+                }
+            }
+
+            ssCtx.restore();
+
+            if (GAME_STATE === 'PLAYING' || GAME_STATE === 'START' || GAME_STATE === 'GAMEOVER') {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function menuLoop() {
+            if (!ssOverlayActive) return;
+            if (GAME_STATE === 'START') {
+                ssCtx.clearRect(0, 0, width, height);
+                stars.forEach(s => { s.update(); s.draw(ssCtx); });
+                requestAnimationFrame(menuLoop);
+            }
+        }
+
+        // ===== Public API (function declarations — hoisted, jadi bisa direferensikan
+        //                     sebelum baris deklarasi tampil di source) =====
+        // Buka game overlay. Optional callback dipanggil saat user menutup game.
+        function openStarShooterGame(onExitCallback) {
+            ssOnExitCallback = onExitCallback || null;
+            // Reset state
+            resize();
+            initStars();
+            player = null;
+            bullets = []; enemies = []; particles = [];
+            powerUps = []; floatingTexts = [];
+            score = 0;
+            ssUI.score.innerText = '0';
+            ssUI.highScore.innerText = `HI: ${highScore}`;
+            GAME_STATE = 'START';
+
+            // Tampilkan overlay
+            ssOverlay.classList.add('active');
+            ssOverlayActive = true;
+
+            // Tampilkan start screen, sembunyikan layar lain
+            ssUI.start.classList.remove('ss-hidden');
+            ssUI.pause.classList.add('ss-hidden');
+            ssUI.gameOver.classList.add('ss-hidden');
+            ssUI.hud.classList.add('ss-hidden');
+
+            // Mulai menu loop (animasi starfield di start screen)
+            requestAnimationFrame(menuLoop);
+        }
+
+        function closeStarShooterGame() {
+            ssOverlay.classList.remove('active');
+            ssOverlayActive = false;
+            // Reset semua key state supaya tidak menyangkut
+            Object.keys(keys).forEach(k => keys[k] = false);
+            touch.active = false;
+            // Hentikan loop dengan mengubah state
+            GAME_STATE = 'IDLE';
+            // Panggil callback jika ada (misal lanjut ke showScreen("gender"))
+            if (typeof ssOnExitCallback === 'function') {
+                const cb = ssOnExitCallback;
+                ssOnExitCallback = null;
+                cb();
+            }
+        }
+
+        // ===== Expose ke window agar bisa dipanggil dari script lain =====
+        window.openStarShooterGame = openStarShooterGame;
+        window.closeStarShooterGame = closeStarShooterGame;
+
+        // ===== Button bindings =====
+        ssUI.btnStart.addEventListener('click', startGame);
+        ssUI.btnRestart.addEventListener('click', startGame);
+        ssUI.btnResume.addEventListener('click', togglePause);
+        ssUI.btnPause.addEventListener('click', togglePause);
+        ssUI.btnExit.addEventListener('click', closeStarShooterGame);
+    })();
     </script>
 </body>
 </html>
