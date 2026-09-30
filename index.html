@@ -2237,9 +2237,12 @@
         }
 // ============================================================
         //  FUNGSI DOWNLOAD EXCEL REKAP GLOBAL KESELURUHAN (PANITIA)
-        //  Format XLSX asli — 2 sheet (Putra & Putri), 5 tabel cabang
-        //  bersebelahan: Bahasa Arab | Bahasa Indonesia | Bahasa Inggris | UTHQ | KLIK
-        //  Kolom: No | Lembaga | Kelas | Mata Lomba | Keterangan
+        //  Format XLSX asli — 2 sheet (Putra & Putri).
+        //  Tiap sheet berisi tabel per-jenjang bertumpuk vertikal:
+        //    Putra: SD → SMP → SMA
+        //    Putri: SD → SMP → SMA → PGMI
+        //  Di atas tiap tabel jenjang ditampilkan baris "JUMLAH PESERTA: N"
+        //  Kolom: NO | LEMBAGA | NAMA PESERTA | KELAS | MATA LOMBA | KETERANGAN
         // ============================================================
 
         // Daftar lembaga online (sesuai permintaan panitia)
@@ -2345,102 +2348,110 @@
         }
 
         /**
-         * Bangun worksheet untuk satu gender (Putra/Putri) berisi 5 tabel
-         * cabang yang disusun berdampingan dari kiri ke kanan:
-         * Bahasa Arab | Bahasa Indonesia | Bahasa Inggris | UTHQ | KLIK
+         * Bangun worksheet untuk satu gender (Putra/Putri).
+         * Susunan VERTIKAL — tabel per-jenjang bertumpuk ke bawah:
+         *   Putra: SD → SMP → SMA
+         *   Putri: SD → SMP → SMA → PGMI
+         * Di atas tiap tabel ada baris judul "JENJANG: <SD/SMP/...>"
+         * dan baris "JUMLAH PESERTA: <N>" sebelum header kolom.
+         *
+         * Kolom: NO | LEMBAGA | NAMA PESERTA | KELAS | MATA LOMBA | KETERANGAN
          */
         function buildSheetForGender(gender, allRows) {
-            const CABANG_LIST = ['Bahasa Arab', 'Bahasa Indonesia', 'Bahasa Inggris', 'UTHQ', 'KLIK'];
-            const HEADERS = ['No', 'Lembaga', 'Kelas', 'Mata Lomba', 'Keterangan'];
-            const TABLE_COLS = HEADERS.length; // 5 kolom per tabel
-            const TABLE_GAP = 1; // 1 kolom kosong sebagai pemisah antar tabel
+            // Urutan jenjang: PGMI hanya muncul di sheet Putri.
+            const JENJANG_ORDER = (gender === 'PUTRI')
+                ? ['SD', 'SMP', 'SMA', 'PGMI']
+                : ['SD', 'SMP', 'SMA'];
+
+            const HEADERS = ['NO', 'LEMBAGA', 'NAMA PESERTA', 'KELAS', 'MATA LOMBA', 'KETERANGAN'];
+            const TABLE_COLS = HEADERS.length; // 6 kolom
+            const TABLE_GAP = 2; // 2 baris kosong antar tabel jenjang
 
             const rowsForGender = allRows.filter(r => r.gender === gender);
 
-            // Susun data tiap cabang: array of rows, masing-masing row = [no, lembaga, kelas, lomba, keterangan]
-            const tables = CABANG_LIST.map(cabang => {
-                const rowsInCabang = rowsForGender.filter(r => r.cabang === cabang);
+            // Susun data tiap jenjang: array of { jenjang, dataRows }
+            const tables = JENJANG_ORDER.map(jenjang => {
+                const rowsInJenjang = rowsForGender.filter(r => r.jenjang === jenjang);
                 // Sort by lembaga order, lalu kelas, lalu nama
-                rowsInCabang.sort((a, b) => {
+                rowsInJenjang.sort((a, b) => {
                     const aOrd = a.orderIdx;
                     const bOrd = b.orderIdx;
                     if (aOrd !== bOrd) return aOrd - bOrd;
                     if (a.kelas !== b.kelas) return String(a.kelas).localeCompare(String(b.kelas));
                     return String(a.nama).localeCompare(String(b.nama));
                 });
-                const dataRows = rowsInCabang.map((r, i) => [
+                const dataRows = rowsInJenjang.map((r, i) => [
                     i + 1,
                     r.lembaga,
+                    r.nama,
                     r.kelas,
                     r.lomba,
                     r.isOnline ? 'online' : ''
                 ]);
-                return { cabang, dataRows };
+                return { jenjang, dataRows };
             });
 
-            // Hitung dimensi gabungan
-            const titleRows = 1; // baris judul cabang (merged)
-            const headerRows = 1; // baris header kolom
-            const topPadding = titleRows + headerRows; // 2 baris di atas data
-            const maxDataRows = Math.max(...tables.map(t => t.dataRows.length), 0);
-            const totalRows = topPadding + maxDataRows;
-            const totalCols = tables.length * TABLE_COLS + (tables.length - 1) * TABLE_GAP;
+            // Tiap blok tabel = 1 baris judul + 1 baris jumlah + 1 baris header + N baris data
+            const TITLE_ROWS = 2; // judul jenjang + jumlah peserta
+            const HEADER_ROWS = 1;
+            const totalDataRows = tables.reduce((s, t) => s + t.dataRows.length, 0);
+            const totalRows =
+                tables.length * (TITLE_ROWS + HEADER_ROWS) +
+                totalDataRows +
+                (tables.length - 1) * TABLE_GAP;
 
             // Bangun AOA kosong
             const aoa = [];
             for (let r = 0; r < totalRows; r++) {
-                const row = [];
-                for (let c = 0; c < totalCols; c++) row.push('');
-                aoa.push(row);
+                aoa.push(new Array(TABLE_COLS).fill(''));
             }
 
             const merges = [];
-            let colOffset = 0;
+            let rowOffset = 0;
 
             tables.forEach(t => {
-                const startCol = colOffset;
-                const endCol = startCol + TABLE_COLS - 1;
-
-                // Baris judul (merge 5 kolom)
+                // Baris judul jenjang (merge semua kolom)
                 merges.push({
-                    s: { r: 0, c: startCol },
-                    e: { r: 0, c: endCol }
+                    s: { r: rowOffset, c: 0 },
+                    e: { r: rowOffset, c: TABLE_COLS - 1 }
                 });
-                aoa[0][startCol] = `CABANG: ${t.cabang}`;
+                aoa[rowOffset][0] = `JENJANG: ${t.jenjang}`;
+
+                // Baris jumlah peserta (merge semua kolom)
+                merges.push({
+                    s: { r: rowOffset + 1, c: 0 },
+                    e: { r: rowOffset + 1, c: TABLE_COLS - 1 }
+                });
+                aoa[rowOffset + 1][0] = `JUMLAH PESERTA: ${t.dataRows.length}`;
 
                 // Baris header kolom
                 HEADERS.forEach((h, i) => {
-                    aoa[1][startCol + i] = h;
+                    aoa[rowOffset + 2][i] = h;
                 });
 
-                // Data rows
+                // Baris data
                 t.dataRows.forEach((row, i) => {
                     row.forEach((val, j) => {
-                        aoa[2 + i][startCol + j] = val;
+                        aoa[rowOffset + 3 + i][j] = val;
                     });
                 });
 
-                colOffset += TABLE_COLS + TABLE_GAP;
+                rowOffset += TITLE_ROWS + HEADER_ROWS + t.dataRows.length + TABLE_GAP;
             });
 
             // Buat worksheet dari AOA
             const ws = XLSX.utils.aoa_to_sheet(aoa);
             ws['!merges'] = merges;
 
-            // Set lebar kolom: No=5, Lembaga=30, Kelas=10, Mata Lomba=30, Keterangan=12
-            const colWidths = [];
-            for (let t = 0; t < tables.length; t++) {
-                colWidths.push({ wch: 5 });   // No
-                colWidths.push({ wch: 30 });  // Lembaga
-                colWidths.push({ wch: 10 });  // Kelas
-                colWidths.push({ wch: 30 });  // Mata Lomba
-                colWidths.push({ wch: 12 });  // Keterangan
-                if (t < tables.length - 1) colWidths.push({ wch: 2 }); // gap
-            }
-            ws['!cols'] = colWidths;
-
-            // Set freeze panes di baris 2 (setelah judul+header)
-            ws['!freeze'] = { ySplit: 2, topLeftCell: 'A3', activePane: 'bottomLeft', state: 'frozen' };
+            // Set lebar kolom: NO=5, LEMBAGA=30, NAMA PESERTA=30, KELAS=10, MATA LOMBA=30, KETERANGAN=12
+            ws['!cols'] = [
+                { wch: 5 },   // NO
+                { wch: 30 },  // LEMBAGA
+                { wch: 30 },  // NAMA PESERTA
+                { wch: 10 },  // KELAS
+                { wch: 30 },  // MATA LOMBA
+                { wch: 12 }   // KETERANGAN
+            ];
 
             return ws;
         }
@@ -2527,7 +2538,7 @@
             // Kembalikan status tombol
             btn.innerHTML = originalText;
             btn.disabled = false;
-            toastSuccess("Berhasil", "File Rekap XLSX (sheet Putra & Putri, tabel cabang bersebelahan) berhasil didownload.");
+            toastSuccess("Berhasil", "File Rekap XLSX (sheet Putra & Putri, tabel per-jenjang SD → SMP → SMA → PGMI, dengan jumlah peserta di atas tiap tabel) berhasil didownload.");
         }
     </script>
 
