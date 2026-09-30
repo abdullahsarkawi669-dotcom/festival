@@ -2238,6 +2238,3282 @@
 // ============================================================
         //  FUNGSI DOWNLOAD EXCEL REKAP GLOBAL KESELURUHAN (PANITIA)
         //  Format XLSX asli — 2 sheet (Putra & Putri).
+        //  Tiap sheet berisi 5 tabel cabang lomba BERSEBELAHAN (kiri → kanan):
+        //    Bahasa Arab → Bahasa Indonesia → Bahasa Inggris → UTHQ → KLIK
+        //  Tiap cabang dipecah VERTIKAL per jenjang:
+        //    Putra: SD → SMP → SMA
+        //    Putri: SD → SMP → SMA → PGMI
+        //  Tiap tabel jenjang memiliki baris "JUMLAH PESERTA: N" di atas header.
+        //  Urutan lembaga: SMP/SMA Fullday → PPS Wustho & Ulya → SMP IT Abhur
+        //  Mataram & MA Plus → lembaga offline lainnya → lembaga online (paling
+        //  bawah, dengan keterangan "online").
+        //  Kolom: NO | LEMBAGA | NAMA PESERTA | KELAS | MATA LOMBA | KETERANGAN
+        // ============================================================
+
+        // Daftar lembaga online (sesuai permintaan panitia)
+        const ONLINE_LEMBAGA_PATTERNS = [
+            /sembalun/i,           // SD IT Sembalun (Putra & Putri)
+            /sumbawa/i,            // SMP IT Abhur Sumbawa (Putra & Putri)
+            /\bibs\b/i             // SMA IBS (AH/Bali)
+        ];
+
+        // Urutan prioritas lembaga (makin kecil = makin awal di tabel)
+        const LEMBAGA_ORDER_MAP = {
+            // === Offline priority 1: SMP/SMA Fullday ===
+            "SMP IT Putra Fullday": 10,
+            "SMA IT Putra Fullday": 11,
+            // === Offline priority 2: PPS Wustho & Ulya ===
+            "PPS Diniyah Wustho": 20,
+            "PPS Diniyah Ulya": 21,
+            // === Offline priority 3: SMP IT Abhur Mataram & MA Plus ===
+            "SMP IT Putra Abhur Mataram": 30,
+            "SMP IT Putri Abhur Mataram": 31,
+            "MA Plus Mataram": 32,
+            // === Offline priority 4: lembaga lain yang tidak disebut ===
+            "SD IT Putra Abhur Mataram": 40,
+            "SD IT Putri Abhur Mataram": 41,
+            "SMA IT Putri Abhur Mataram": 42,
+            "PGMI": 43,
+            // === Online (paling bawah, dengan keterangan "online") ===
+            "SD IT Sembalun (Putra)": 500,
+            "SD IT Sembalun (Putri)": 501,
+            "SMP IT Abhur Sumbawa (Putra)": 502,
+            "SMP IT Abhur Sumbawa (Putri)": 503,
+            "SMA IBS AH": 504,
+            "SMA IBS Bali": 504
+        };
+
+        function isLembagaOnline(lembagaNama) {
+            const nama = (lembagaNama || "").trim();
+            // Cek exact match dulu
+            if (LEMBAGA_ORDER_MAP.hasOwnProperty(nama)) {
+                return LEMBAGA_ORDER_MAP[nama] >= 500;
+            }
+            // Fallback: cek pattern
+            return ONLINE_LEMBAGA_PATTERNS.some(re => re.test(nama));
+        }
+
+        function getLembagaOrderIndex(lembagaNama) {
+            const nama = (lembagaNama || "").trim();
+            if (LEMBAGA_ORDER_MAP.hasOwnProperty(nama)) {
+                return LEMBAGA_ORDER_MAP[nama];
+            }
+            // Fallback heuristic
+            if (isLembagaOnline(nama)) return 599;
+            const lower = nama.toLowerCase();
+            if (lower.includes('fullday')) {
+                if (lower.startsWith('smp')) return 10;
+                if (lower.startsWith('sma')) return 11;
+                return 19;
+            }
+            if (lower.includes('wustho')) return 20;
+            if (lower.includes('ulya')) return 21;
+            if (lower.includes('ma plus')) return 32;
+            if (lower.includes('smp') && lower.includes('abhur mataram')) return 30;
+            if (lower.includes('sd') && lower.includes('abhur mataram')) return 40;
+            if (lower.includes('pgmi')) return 43;
+            return 99;
+        }
+
+        function getGenderForLembaga(lembagaNama) {
+            const found = LEMBAGA.find(l => l.nama === lembagaNama);
+            if (found) return found.gender;
+            const lower = (lembagaNama || "").toLowerCase();
+            if (lower.includes('putri') || lower.includes('pgmi')) return 'PUTRI';
+            return 'PUTRA';
+        }
+
+        /**
+         * Tentukan cabang lomba detail: "Bahasa Arab" | "Bahasa Indonesia"
+         * | "Bahasa Inggris" | "UTHQ" | "KLIK"
+         */
+        function getCabangLombaDetail(lombaName, jenjang) {
+            const upper = (lombaName || "").toUpperCase().trim();
+            const cabangLomba = MATA_LOMBA[jenjang] || {};
+            // 1) UTHQ — kategori tahfizh
+            if (cabangLomba["UTHQ"] && cabangLomba["UTHQ"].includes(lombaName)) return "UTHQ";
+            if (upper.includes("TAHFIZH") || upper.includes("UTHQ")) return "UTHQ";
+            // 2) KLIK — kategori klik
+            if (cabangLomba["KLIK"] && cabangLomba["KLIK"].includes(lombaName)) return "KLIK";
+            // 3) Bahasa — pecah berdasarkan bahasa
+            if (upper.includes("B.ARAB") || upper.includes("QIRA'ATUL KUTUB") || upper.includes("HIFZHUL MUTUN")) {
+                return "Bahasa Arab";
+            }
+            if (upper.includes("B.INDO")) {
+                return "Bahasa Indonesia";
+            }
+            if (upper.includes("B.INGGRIS") || upper.includes("STORY TELLING")) {
+                return "Bahasa Inggris";
+            }
+            // Fallback: jika masuk kategori Bahasa tapi tidak tertangkap, anggap Bahasa Arab
+            if (cabangLomba["Bahasa"] && cabangLomba["Bahasa"].includes(lombaName)) {
+                return "Bahasa Arab";
+            }
+            return "Lainnya";
+        }
+
+        /**
+         * Bangun worksheet untuk satu gender (Putra/Putri).
+         *
+         * LAYOUT (sesuai permintaan panitia):
+         * - 5 cabang lomba dipasang BERSEBELAHAN secara HORIZONTAL (kiri → kanan):
+         *     Kolom A-F   : Bahasa Arab
+         *     Kolom H-M    : Bahasa Indonesia
+         *     Kolom O-T    : Bahasa Inggris
+         *     Kolom V-AA   : UTHQ
+         *     Kolom AC-AH  : KLIK
+         *   (Ada 1 kolom kosong sebagai pemisah antar cabang.)
+         * - Dalam tiap cabang, tabel dipecah VERTIKAL per jenjang:
+         *     Putra: SD → SMP → SMA
+         *     Putri: SD → SMP → SMA → PGMI
+         * - Tiap tabel jenjang memiliki struktur:
+         *     Baris 1: "JENJANG: <SD/SMP/SMA/PGMI>"      (merge 6 kolom)
+         *     Baris 2: "JUMLAH PESERTA: <N>"              (merge 6 kolom)
+         *     Baris 3: Header kolom
+         *     Baris 4..: Data peserta
+         * - Baris paling atas tiap kolom cabang: "CABANG: <nama cabang>" (merge 6 kolom)
+         *
+         * Kolom: NO | LEMBAGA | NAMA PESERTA | KELAS | MATA LOMBA | KETERANGAN
+         *
+         * Urutan baris data (per tabel):
+         *   1. Lembaga offline prioritas: SMP/SMA Fullday → PPS Wustho & Ulya
+         *      → SMP IT Abhur Mataram / MA Plus → lembaga offline lainnya.
+         *   2. Lembaga online (SD IT Sembalun, SMP IT Abhur Sumbawa, SMA IBS Bali)
+         *      diletakkan paling bawah dengan keterangan "online".
+         */
+        function buildSheetForGender(gender, allRows) {
+            // Urutan jenjang: PGMI hanya muncul di sheet Putri.
+            const JENJANG_ORDER = (gender === 'PUTRI')
+                ? ['SD', 'SMP', 'SMA', 'PGMI']
+                : ['SD', 'SMP', 'SMA'];
+
+            // Urutan cabang lomba dipasang bersebelahan kiri → kanan.
+            const CABANG_ORDER = ['Bahasa Arab', 'Bahasa Indonesia', 'Bahasa Inggris', 'UTHQ', 'KLIK'];
+
+            const HEADERS = ['NO', 'LEMBAGA', 'NAMA PESERTA', 'KELAS', 'MATA LOMBA', 'KETERANGAN'];
+            const TABLE_COLS = HEADERS.length; // 6 kolom per tabel
+            const COL_GAP = 1; // 1 kolom kosong antar cabang (sebagai pemisah visual)
+            const ROW_GAP = 2; // 2 baris kosong antar tabel jenjang dalam satu cabang
+
+            const rowsForGender = allRows.filter(r => r.gender === gender);
+
+            // Susun data per (cabang, jenjang) — siapkan dulu biar render-nya ringan.
+            const cabangBlocks = CABANG_ORDER.map(cabang => {
+                const jenjangTables = JENJANG_ORDER.map(jenjang => {
+                    const rowsInJenjang = rowsForGender.filter(r =>
+                        r.jenjang === jenjang && r.cabang === cabang
+                    );
+                    // Sort: lembaga order index (offline prioritas → online paling bawah), lalu kelas, lalu nama.
+                    rowsInJenjang.sort((a, b) => {
+                        if (a.orderIdx !== b.orderIdx) return a.orderIdx - b.orderIdx;
+                        if (a.kelas !== b.kelas) return String(a.kelas).localeCompare(String(b.kelas));
+                        return String(a.nama).localeCompare(String(b.nama));
+                    });
+                    const dataRows = rowsInJenjang.map((r, i) => [
+                        i + 1,
+                        r.lembaga,
+                        r.nama,
+                        r.kelas,
+                        r.lomba,
+                        r.isOnline ? 'online' : ''
+                    ]);
+                    return { jenjang, dataRows };
+                });
+                return { cabang, jenjangTables };
+            });
+
+            // Hitung total baris yang dibutuhkan tiap kolom cabang.
+            // Tiap cabang butuh: 1 baris judul cabang + Σ(3 + N data) per jenjang + ROW_GAP antar jenjang.
+            const cabangRowCounts = cabangBlocks.map(block => {
+                let total = 1; // baris "CABANG: <nama>"
+                block.jenjangTables.forEach((t, idx) => {
+                    total += 3 + t.dataRows.length; // judul jenjang + jumlah + header + data
+                    if (idx < block.jenjangTables.length - 1) total += ROW_GAP;
+                });
+                return total;
+            });
+            const maxRows = Math.max(...cabangRowCounts, 1);
+
+            // Hitung offset kolom tiap cabang (kiri → kanan).
+            const colOffsets = [];
+            let colCursor = 0;
+            cabangBlocks.forEach((block, idx) => {
+                colOffsets.push(colCursor);
+                colCursor += TABLE_COLS + (idx < cabangBlocks.length - 1 ? COL_GAP : 0);
+            });
+            const totalCols = colCursor;
+
+            // Bangun AOA kosong (maxRows × totalCols).
+            const aoa = [];
+            for (let r = 0; r < maxRows; r++) {
+                aoa.push(new Array(totalCols).fill(''));
+            }
+
+            const merges = [];
+
+            cabangBlocks.forEach((block, cabangIdx) => {
+                const colStart = colOffsets[cabangIdx];
+                let rowOffset = 0;
+
+                // Baris judul cabang di paling atas kolom (merge 6 kolom).
+                merges.push({
+                    s: { r: rowOffset, c: colStart },
+                    e: { r: rowOffset, c: colStart + TABLE_COLS - 1 }
+                });
+                aoa[rowOffset][colStart] = `CABANG: ${block.cabang}`;
+                rowOffset += 1;
+
+                block.jenjangTables.forEach((t, jIdx) => {
+                    const isLast = (jIdx === block.jenjangTables.length - 1);
+
+                    // Baris judul jenjang (merge 6 kolom cabang ini).
+                    merges.push({
+                        s: { r: rowOffset, c: colStart },
+                        e: { r: rowOffset, c: colStart + TABLE_COLS - 1 }
+                    });
+                    aoa[rowOffset][colStart] = `JENJANG: ${t.jenjang}`;
+
+                    // Baris jumlah peserta (merge 6 kolom).
+                    merges.push({
+                        s: { r: rowOffset + 1, c: colStart },
+                        e: { r: rowOffset + 1, c: colStart + TABLE_COLS - 1 }
+                    });
+                    aoa[rowOffset + 1][colStart] = `JUMLAH PESERTA: ${t.dataRows.length}`;
+
+                    // Baris header kolom.
+                    HEADERS.forEach((h, i) => {
+                        aoa[rowOffset + 2][colStart + i] = h;
+                    });
+
+                    // Baris data.
+                    t.dataRows.forEach((row, i) => {
+                        row.forEach((val, j) => {
+                            aoa[rowOffset + 3 + i][colStart + j] = val;
+                        });
+                    });
+
+                    rowOffset += 3 + t.dataRows.length + (isLast ? 0 : ROW_GAP);
+                });
+            });
+
+            // Buat worksheet dari AOA.
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            ws['!merges'] = merges;
+
+            // Set lebar kolom: tiap cabang = NO(5) + LEMBAGA(30) + NAMA(30) + KELAS(10) + MATA(30) + KET(12) + gap(2) [kecuali cabang terakhir].
+            const cols = [];
+            cabangBlocks.forEach((block, idx) => {
+                cols.push({ wch: 5 });   // NO
+                cols.push({ wch: 30 });  // LEMBAGA
+                cols.push({ wch: 30 });  // NAMA PESERTA
+                cols.push({ wch: 10 });  // KELAS
+                cols.push({ wch: 30 });  // MATA LOMBA
+                cols.push({ wch: 12 });  // KETERANGAN
+                if (idx < cabangBlocks.length - 1) {
+                    cols.push({ wch: 2 }); // kolom gap antar cabang
+                }
+            });
+            ws['!cols'] = cols;
+
+            return ws;
+        }
+
+        async function downloadExcelRekapGlobal(event) {
+            const btn = event.currentTarget;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = "Menyiapkan XLSX...";
+            btn.disabled = true;
+
+            // Pastikan library SheetJS sudah dimuat
+            if (typeof XLSX === 'undefined') {
+                toastError("Library belum siap", "SheetJS belum selesai dimuat. Tunggu beberapa saat lalu coba lagi.");
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
+
+            // Tarik data terbaru dari server sebelum generate
+            await fetchAllRegistrations();
+
+            if (!allRegistrationsData || allRegistrationsData.length === 0) {
+                toastError("Data kosong", "Gagal memuat rekap pendaftar. Tunggu beberapa saat atau segarkan halaman.");
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
+
+            // Flatten semua pendaftaran: satu baris per (santri, lomba)
+            const allRows = [];
+            allRegistrationsData.forEach(r => {
+                if (Array.isArray(r.lomba) && r.lomba.length > 0) {
+                    r.lomba.forEach(lombaName => {
+                        const orderIdx = getLembagaOrderIndex(r.lembaga);
+                        const isOnline = isLembagaOnline(r.lembaga);
+                        const cabang = getCabangLombaDetail(lombaName, r.jenjang);
+                        const gender = getGenderForLembaga(r.lembaga);
+                        allRows.push({
+                            jenjang: r.jenjang,
+                            lembaga: r.lembaga,
+                            kelas: r.kelas,
+                            nama: r.nama,
+                            lomba: lombaName,
+                            cabang: cabang,
+                            gender: gender,
+                            isOnline: isOnline,
+                            orderIdx: orderIdx
+                        });
+                    });
+                }
+            });
+
+            if (allRows.length === 0) {
+                toastInfo("Belum ada pendaftar", "Belum ada santri yang didaftarkan di lomba manapun.");
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
+
+            // Buat workbook baru
+            const wb = XLSX.utils.book_new();
+            wb.Props = {
+                Title: "Rekapitulasi Pendaftar Festival Abu Hurairah ke-13",
+                Author: "Panitia Festival Abu Hurairah ke-13",
+                CreatedDate: new Date()
+            };
+
+            // Sheet 1: PUTRA
+            const wsPutra = buildSheetForGender('PUTRA', allRows);
+            XLSX.utils.book_append_sheet(wb, wsPutra, 'Putra');
+
+            // Sheet 2: PUTRI
+            const wsPutri = buildSheetForGender('PUTRI', allRows);
+            XLSX.utils.book_append_sheet(wb, wsPutri, 'Putri');
+
+            // Tulis file .xlsx
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            const fileTime = `${pad(now.getDate())}${pad(now.getMonth() + 1)}_${now.getHours()}${pad(now.getMinutes())}`;
+            const fileName = `Rekap_Audisi_Keseluruhan_${fileTime}.xlsx`;
+
+            XLSX.writeFile(wb, fileName);
+
+            // Kembalikan status tombol
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            toastSuccess("Berhasil", "File Rekap XLSX berhasil didownload. Sheet Putra & Putri; tiap sheet berisi 5 tabel cabang bersebelahan (Bahasa Arab → Bahasa Indonesia → Bahasa Inggris → UTHQ → KLIK); masing-masing dipecah per jenjang (SD → SMP → SMA → PGMI untuk Putri). Lembaga online diletakkan paling bawah dengan keterangan 'online'.");
+        }
+    </script>
+
+    <!-- ============================================================
+         STAR SHOOTER GAME OVERLAY
+         - Hanya muncul saat admin klik "Admin: Ganti Lembaga"
+           dan berhasil masukkan password "agus133"
+         - Berjalan di atas aplikasi (overlay fullscreen, z-index 9999)
+         - Tombol "X Keluar" untuk menutup & melanjutkan ke halaman awal
+    ============================================================ -->
+    <div id="starShooterOverlay">
+        <canvas id="starShooterCanvas"></canvas>
+
+        <div id="starShooterHud" class="ss-hidden">
+            <div class="score-board">
+                <span id="ssScoreDisplay">0</span>
+                <span id="ssHighScoreDisplay" class="high-score">HI: 0</span>
+                <div class="stats-panel">
+                    <div id="ssMachineryText">MACHINERY: LVL 1</div>
+                    <div style="display:flex; align-items:center; gap: 8px;">
+                        <span>SHIELD:</span>
+                        <div id="ssShieldPips" class="shield-bar"></div>
+                    </div>
+                </div>
+            </div>
+            <button id="ssPauseBtn">||</button>
+        </div>
+
+        <button id="ssExitBtn">X Keluar</button>
+
+        <div id="ssStartScreen" class="ui-layer">
+            <h1>Star Shooter</h1>
+            <p>
+                Keyboard: WASD / Arrows to move, SPACE to shoot<br>
+                Mobile: Touch &amp; drag to move and auto-shoot<br><br>
+                <span style="color:#0ff">Break stars to upgrade Machinery &amp; acquire Shields!</span><br><br>
+                <span style="color:#ff0; font-weight:bold;">Mode Admin Utama - Hiburan saat ganti lembaga</span><br>
+                <span style="color:#aaa; font-size:0.9rem;">Overlay transparan — aplikasi entry festival masih terlihat di belakang.</span><br>
+                <span style="color:#888; font-size:0.9rem;">Klik "X Keluar" di pojok kanan atas untuk menutup game &amp; kembali ke halaman awal.</span>
+            </p>
+            <button id="ssStartBtn">Play Now</button>
+        </div>
+
+        <div id="ssPauseScreen" class="ui-layer ss-hidden">
+            <h2>PAUSED</h2>
+            <button id="ssResumeBtn">Resume</button>
+        </div>
+
+        <div id="ssGameOverScreen" class="ui-layer ss-hidden">
+            <h2>SYSTEM FAILURE</h2>
+            <p id="ssFinalScoreText">Score: 0</p>
+            <button id="ssRestartBtn">Restart</button>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         STAR SHOOTER GAME LOGIC
+    ============================================================ -->
+    <script>
+    (function () {
+        'use strict';
+
+        // ===== State apakah overlay game sedang aktif (guard keyboard) =====
+        let ssOverlayActive = false;
+        let ssOnExitCallback = null; // dipanggil saat user menutup game
+
+        // ===== Element references =====
+        const ssCanvas = document.getElementById('starShooterCanvas');
+        const ssCtx = ssCanvas.getContext('2d');
+        const ssOverlay = document.getElementById('starShooterOverlay');
+        const ssUI = {
+            start: document.getElementById('ssStartScreen'),
+            pause: document.getElementById('ssPauseScreen'),
+            gameOver: document.getElementById('ssGameOverScreen'),
+            hud: document.getElementById('starShooterHud'),
+            score: document.getElementById('ssScoreDisplay'),
+            highScore: document.getElementById('ssHighScoreDisplay'),
+            finalScore: document.getElementById('ssFinalScoreText'),
+            btnStart: document.getElementById('ssStartBtn'),
+            btnResume: document.getElementById('ssResumeBtn'),
+            btnRestart: document.getElementById('ssRestartBtn'),
+            btnPause: document.getElementById('ssPauseBtn'),
+            btnExit: document.getElementById('ssExitBtn'),
+            machineryText: document.getElementById('ssMachineryText'),
+            shieldPips: document.getElementById('ssShieldPips')
+        };
+
+        // ===== Game state =====
+        let GAME_STATE = 'START';
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('starShooterHighScore') || '0', 10);
+        let width = 0, height = 0;
+        let lastTime = 0;
+        let shakeTime = 0;
+        let enemyTimer = 0;
+        let enemyInterval = 1000;
+
+        let player = null;
+        let bullets = [];
+        let enemies = [];
+        let particles = [];
+        let stars = [];
+        let powerUps = [];
+        let floatingTexts = [];
+
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false, w: false, a: false, s: false, d: false, ' ': false, Escape: false };
+        const touch = { active: false, x: 0, y: 0 };
+
+        // ===== Resize =====
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            ssCanvas.width = width;
+            ssCanvas.height = height;
+        }
+        window.addEventListener('resize', () => {
+            if (ssOverlayActive) resize();
+        });
+
+        // ===== Input (guarded by ssOverlayActive) =====
+        window.addEventListener('keydown', (e) => {
+            if (!ssOverlayActive) return;
+            if (keys.hasOwnProperty(e.key)) {
+                keys[e.key] = true;
+                // Cegah scroll halaman saat game aktif
+                if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+            }
+            if (e.key === ' ' && GAME_STATE === 'PLAYING' && player) player.shoot();
+            if (e.key === 'Escape') togglePause();
+        });
+        window.addEventListener('keyup', (e) => {
+            if (!ssOverlayActive) return;
+            if (keys.hasOwnProperty(e.key)) keys[e.key] = false;
+        });
+
+        ssCanvas.addEventListener('touchstart', (e) => {
+            if (!ssOverlayActive) return;
+            touch.active = true;
+            touch.x = e.touches[0].clientX;
+            touch.y = e.touches[0].clientY;
+            e.preventDefault();
+        }, { passive: false });
+        ssCanvas.addEventListener('touchmove', (e) => {
+            if (!ssOverlayActive || !touch.active || !player) return;
+            const dx = e.touches[0].clientX - touch.x;
+            const dy = e.touches[0].clientY - touch.y;
+            player.x += dx * 1.5;
+            player.y += dy * 1.5;
+            touch.x = e.touches[0].clientX;
+            touch.y = e.touches[0].clientY;
+            e.preventDefault();
+        }, { passive: false });
+        ssCanvas.addEventListener('touchend', () => { touch.active = false; });
+
+        // ===== Entities =====
+        class Star {
+            constructor() { this.reset(true); }
+            reset(randomY = false) {
+                this.x = Math.random() * width;
+                this.y = randomY ? Math.random() * height : -10;
+                this.size = Math.random() * 2 + 0.5;
+                this.speed = this.size * 2;
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > height) this.reset();
+            }
+            draw(ctx) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.size/3})`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class Player {
+            constructor() {
+                this.size = 16;
+                this.x = width / 2;
+                this.y = height - 100;
+                this.baseSpeed = 7;
+                this.color = '#0ff';
+                this.lastShot = 0;
+                this.level = 1;
+                this.shields = 0;
+                this.maxShields = 3;
+                this.shieldAngle = 0;
+            }
+            get speed() { return this.baseSpeed + (this.level - 1) * 1.2; }
+            get fireRate() { return Math.max(70, 160 - (this.level - 1) * 20); }
+            upgrade() {
+                this.level++;
+                if (this.shields < this.maxShields) this.shields++;
+                updateHUD();
+            }
+            update() {
+                if (keys.ArrowLeft || keys.a) this.x -= this.speed;
+                if (keys.ArrowRight || keys.d) this.x += this.speed;
+                if (keys.ArrowUp || keys.w) this.y -= this.speed;
+                if (keys.ArrowDown || keys.s) this.y += this.speed;
+                if (touch.active || keys[' ']) this.shoot();
+                this.x = Math.max(this.size, Math.min(width - this.size, this.x));
+                this.y = Math.max(this.size, Math.min(height - this.size, this.y));
+                this.shieldAngle += 0.05;
+            }
+            shoot() {
+                const now = Date.now();
+                if (now - this.lastShot > this.fireRate) {
+                    if (this.level === 1) {
+                        bullets.push(new Bullet(this.x - 6, this.y - this.size, 0, -16, '#0ff', 4));
+                        bullets.push(new Bullet(this.x + 6, this.y - this.size, 0, -16, '#0ff', 4));
+                    } else if (this.level === 2) {
+                        bullets.push(new Bullet(this.x, this.y - this.size, 0, -16, '#0ff', 5));
+                        bullets.push(new Bullet(this.x - 8, this.y - this.size, -3, -15, '#0ff', 4));
+                        bullets.push(new Bullet(this.x + 8, this.y - this.size, 3, -15, '#0ff', 4));
+                    } else {
+                        bullets.push(new Bullet(this.x - 4, this.y - this.size, 0, -18, '#ff0', 5));
+                        bullets.push(new Bullet(this.x + 4, this.y - this.size, 0, -18, '#ff0', 5));
+                        bullets.push(new Bullet(this.x - 12, this.y - this.size, -5, -16, '#0ff', 4));
+                        bullets.push(new Bullet(this.x + 12, this.y - this.size, 5, -16, '#0ff', 4));
+                    }
+                    this.lastShot = now;
+                    this.y += 1.5;
+                }
+            }
+            draw(ctx) {
+                if (this.shields > 0) {
+                    ctx.save();
+                    ctx.translate(this.x, this.y);
+                    ctx.rotate(this.shieldAngle);
+                    ctx.strokeStyle = '#0ff';
+                    ctx.lineWidth = 2;
+                    ctx.shadowBlur = 12;
+                    ctx.shadowColor = '#0ff';
+                    for (let i = 0; i < this.shields; i++) {
+                        ctx.beginPath();
+                        ctx.arc(0, 0, this.size + 10 + (i * 6), 0, Math.PI * 1.5);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
+                }
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y - this.size);
+                ctx.lineTo(this.x - this.size, this.y + this.size);
+                ctx.lineTo(this.x, this.y + (this.size * 0.5));
+                ctx.lineTo(this.x + this.size, this.y + this.size);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, vx, vy, color, radius) {
+                this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+                this.radius = radius; this.color = color;
+                this.markedForDeletion = false;
+            }
+            update() {
+                this.x += this.vx; this.y += this.vy;
+                if (this.y < -50 || this.x < -50 || this.x > width + 50) this.markedForDeletion = true;
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 8;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        class Enemy {
+            constructor() {
+                this.radius = Math.random() * 10 + 15;
+                this.x = Math.random() * (width - this.radius * 2) + this.radius;
+                this.y = -50;
+                this.speed = Math.random() * 2 + 2 + (score * 0.05);
+                this.color = '#f0f';
+                this.hp = Math.ceil(this.radius / 8);
+                this.markedForDeletion = false;
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > height + 50) this.markedForDeletion = true;
+            }
+            draw(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = this.color;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y - this.radius);
+                ctx.lineTo(this.x + this.radius, this.y);
+                ctx.lineTo(this.x, this.y + this.radius);
+                ctx.lineTo(this.x - this.radius, this.y);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        class PowerUp {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.vy = 2; this.radius = 14; this.angle = 0;
+                this.markedForDeletion = false;
+            }
+            update() {
+                this.y += this.vy;
+                this.angle += 0.08;
+                if (this.y > height + 50) this.markedForDeletion = true;
+            }
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.fillStyle = '#0ff';
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#0ff';
+                ctx.beginPath();
+                for (let i = 0; i < 4; i++) {
+                    ctx.lineTo(0, -this.radius);
+                    ctx.rotate(Math.PI / 4);
+                    ctx.lineTo(0, -this.radius / 3);
+                    ctx.rotate(Math.PI / 4);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class FloatingText {
+            constructor(x, y, text, color) {
+                this.x = x; this.y = y; this.text = text; this.color = color;
+                this.life = 1.0; this.vy = -1.5;
+            }
+            update() { this.y += this.vy; this.life -= 0.02; }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.font = 'bold 16px "Courier New"';
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillText(this.text, this.x - 40, this.y);
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        class Particle {
+            constructor(x, y, color) {
+                this.x = x; this.y = y; this.color = color;
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 5 + 2;
+                this.vx = Math.cos(angle) * speed;
+                this.vy = Math.sin(angle) * speed;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.05 + 0.02;
+                this.size = Math.random() * 3 + 2;
+            }
+            update() { this.x += this.vx; this.y += this.vy; this.life -= this.decay; }
+            draw(ctx) {
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
+        // ===== HUD =====
+        function updateHUD() {
+            if (!player) return;
+            ssUI.machineryText.innerText = `MACHINERY: LVL ${player.level}`;
+            ssUI.shieldPips.innerHTML = '';
+            for (let i = 0; i < player.maxShields; i++) {
+                const pip = document.createElement('div');
+                pip.className = 'shield-pip' + (i < player.shields ? ' active' : '');
+                ssUI.shieldPips.appendChild(pip);
+            }
+        }
+
+        // ===== Spawn & FX =====
+        function spawnEnemy(dt) {
+            enemyTimer += dt;
+            if (enemyTimer > enemyInterval) {
+                enemies.push(new Enemy());
+                enemyTimer = 0;
+                enemyInterval = Math.max(300, 1000 - score * 10);
+            }
+        }
+        function createExplosion(x, y, color, count = 15) {
+            for (let i = 0; i < count; i++) particles.push(new Particle(x, y, color));
+        }
+        function shakeScreen(duration) { shakeTime = duration; }
+
+        // ===== Collisions =====
+        function checkCollisions() {
+            bullets.forEach(b => {
+                enemies.forEach(e => {
+                    if (!b.markedForDeletion && !e.markedForDeletion) {
+                        const dx = b.x - e.x, dy = b.y - e.y;
+                        const dist = Math.hypot(dx, dy);
+                        if (dist < b.radius + e.radius) {
+                            b.markedForDeletion = true;
+                            e.hp--;
+                            createExplosion(b.x, b.y, '#fff', 3);
+                            if (e.hp <= 0) {
+                                e.markedForDeletion = true;
+                                createExplosion(e.x, e.y, e.color, 20);
+                                shakeScreen(5);
+                                score += 10;
+                                ssUI.score.innerText = score;
+                                if (Math.random() < 0.20) powerUps.push(new PowerUp(e.x, e.y));
+                            }
+                        }
+                    }
+                });
+            });
+
+            powerUps.forEach(p => {
+                if (!p.markedForDeletion && player) {
+                    const dx = player.x - p.x, dy = player.y - p.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < player.size + p.radius) {
+                        p.markedForDeletion = true;
+                        player.upgrade();
+                        floatingTexts.push(new FloatingText(player.x, player.y - 20, "MACHINERY + SHIELD!", "#0ff"));
+                        createExplosion(p.x, p.y, '#0ff', 25);
+                        shakeScreen(8);
+                    }
+                }
+            });
+
+            enemies.forEach(e => {
+                if (!e.markedForDeletion && player) {
+                    const dx = player.x - e.x, dy = player.y - e.y;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < player.size + e.radius - 2) {
+                        e.markedForDeletion = true;
+                        createExplosion(e.x, e.y, e.color, 20);
+                        if (player.shields > 0) {
+                            player.shields--;
+                            updateHUD();
+                            shakeScreen(10);
+                            floatingTexts.push(new FloatingText(player.x, player.y - 20, "SHIELD ABSORBED!", "#ff0"));
+                            createExplosion(player.x, player.y, '#0ff', 20);
+                        } else {
+                            gameOver();
+                        }
+                    }
+                }
+            });
+        }
+
+        // ===== State management =====
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < 100; i++) stars.push(new Star());
+        }
+
+        function startGame() {
+            player = new Player();
+            bullets = []; enemies = []; particles = [];
+            powerUps = []; floatingTexts = [];
+            score = 0;
+            ssUI.score.innerText = score;
+            enemyInterval = 1000;
+            enemyTimer = 0;
+            updateHUD();
+            ssUI.start.classList.add('ss-hidden');
+            ssUI.gameOver.classList.add('ss-hidden');
+            ssUI.pause.classList.add('ss-hidden');
+            ssUI.hud.classList.remove('ss-hidden');
+            GAME_STATE = 'PLAYING';
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function togglePause() {
+            if (GAME_STATE === 'PLAYING') {
+                GAME_STATE = 'PAUSED';
+                ssUI.pause.classList.remove('ss-hidden');
+            } else if (GAME_STATE === 'PAUSED') {
+                GAME_STATE = 'PLAYING';
+                ssUI.pause.classList.add('ss-hidden');
+                lastTime = performance.now();
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function gameOver() {
+            GAME_STATE = 'GAMEOVER';
+            shakeScreen(20);
+            if (player) createExplosion(player.x, player.y, player.color, 50);
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('starShooterHighScore', highScore);
+                ssUI.highScore.innerText = `HI: ${highScore}`;
+            }
+            ssUI.hud.classList.add('ss-hidden');
+            ssUI.gameOver.classList.remove('ss-hidden');
+            ssUI.finalScore.innerText = `FINAL SCORE: ${score}`;
+        }
+
+        // ===== Main loop =====
+        function gameLoop(timestamp) {
+            if (GAME_STATE === 'PAUSED') return;
+            if (!ssOverlayActive) return; // berhenti jika overlay sudah ditutup
+
+            const dt = timestamp - lastTime;
+            lastTime = timestamp;
+
+            // Canvas transparan tiap frame — background overlay (semi-transparan)
+            // yang meneruskan view ke aplikasi entry festival di belakangnya.
+            // Catatan: trail effect (motion blur) hilang, tapi game tetap playable.
+            ssCtx.clearRect(0, 0, width, height);
+
+            ssCtx.save();
+            if (shakeTime > 0) {
+                const magnitude = (shakeTime / 20) * 10;
+                const dx = (Math.random() - 0.5) * magnitude;
+                const dy = (Math.random() - 0.5) * magnitude;
+                ssCtx.translate(dx, dy);
+                shakeTime--;
+            }
+
+            stars.forEach(s => { s.update(); s.draw(ssCtx); });
+
+            if (GAME_STATE === 'PLAYING' || GAME_STATE === 'GAMEOVER') {
+                powerUps.forEach(p => { p.update(); p.draw(ssCtx); });
+                powerUps = powerUps.filter(p => !p.markedForDeletion);
+                particles.forEach(p => { p.update(); p.draw(ssCtx); });
+                particles = particles.filter(p => p.life > 0);
+                floatingTexts.forEach(ft => { ft.update(); ft.draw(ssCtx); });
+                floatingTexts = floatingTexts.filter(ft => ft.life > 0);
+                bullets.forEach(b => { b.update(); b.draw(ssCtx); });
+                bullets = bullets.filter(b => !b.markedForDeletion);
+                enemies.forEach(e => { e.update(); e.draw(ssCtx); });
+                enemies = enemies.filter(e => !e.markedForDeletion);
+
+                if (GAME_STATE === 'PLAYING' && player) {
+                    player.update();
+                    player.draw(ssCtx);
+                    spawnEnemy(dt);
+                    checkCollisions();
+                }
+            }
+
+            ssCtx.restore();
+
+            if (GAME_STATE === 'PLAYING' || GAME_STATE === 'START' || GAME_STATE === 'GAMEOVER') {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function menuLoop() {
+            if (!ssOverlayActive) return;
+            if (GAME_STATE === 'START') {
+                ssCtx.clearRect(0, 0, width, height);
+                stars.forEach(s => { s.update(); s.draw(ssCtx); });
+                requestAnimationFrame(menuLoop);
+            }
+        }
+
+        // ===== Public API (function declarations — hoisted, jadi bisa direferensikan
+        //                     sebelum baris deklarasi tampil di source) =====
+        // Buka game overlay. Optional callback dipanggil saat user menutup game.
+        function openStarShooterGame(onExitCallback) {
+            ssOnExitCallback = onExitCallback || null;
+            // Reset state
+            resize();
+            initStars();
+            player = null;
+            bullets = []; enemies = []; particles = [];
+            powerUps = []; floatingTexts = [];
+            score = 0;
+            ssUI.score.innerText = '0';
+            ssUI.highScore.innerText = `HI: ${highScore}`;
+            GAME_STATE = 'START';
+
+            // Tampilkan overlay
+            ssOverlay.classList.add('active');
+            ssOverlayActive = true;
+
+            // Tampilkan start screen, sembunyikan layar lain
+            ssUI.start.classList.remove('ss-hidden');
+            ssUI.pause.classList.add('ss-hidden');
+            ssUI.gameOver.classList.add('ss-hidden');
+            ssUI.hud.classList.add('ss-hidden');
+
+            // Mulai menu loop (animasi starfield di start screen)
+            requestAnimationFrame(menuLoop);
+        }
+
+        function closeStarShooterGame() {
+            ssOverlay.classList.remove('active');
+            ssOverlayActive = false;
+            // Reset semua key state supaya tidak menyangkut
+            Object.keys(keys).forEach(k => keys[k] = false);
+            touch.active = false;
+            // Hentikan loop dengan mengubah state
+            GAME_STATE = 'IDLE';
+            // Panggil callback jika ada (misal lanjut ke showScreen("gender"))
+            if (typeof ssOnExitCallback === 'function') {
+                const cb = ssOnExitCallback;
+                ssOnExitCallback = null;
+                cb();
+            }
+        }
+
+        // ===== Expose ke window agar bisa dipanggil dari script lain =====
+        window.openStarShooterGame = openStarShooterGame;
+        window.closeStarShooterGame = closeStarShooterGame;
+
+        // ===== Button bindings =====
+        ssUI.btnStart.addEventListener('click', startGame);
+        ssUI.btnRestart.addEventListener('click', startGame);
+        ssUI.btnResume.addEventListener('click', togglePause);
+        ssUI.btnPause.addEventListener('click', togglePause);
+        ssUI.btnExit.addEventListener('click', closeStarShooterGame);
+    })();
+        
+// ============================================================
+//  FUNGSI KUNCI/BUKA PENDAFTARAN KHUSUS ADMIN AGUS
+// ============================================================
+function toggleLockAdmin() {
+    const pwd = prompt("Masukkan Password Admin (Khusus Agus):");
+    
+    // Cek password (bisa menggunakan agus atau agus133)
+    if (pwd === "agus" || pwd === "agus133") {
+        isPendaftaranLocked = !isPendaftaranLocked;
+        localStorage.setItem("app_audisi_locked", isPendaftaranLocked);
+        updateLockUI();
+        
+        if (isPendaftaranLocked) {
+            toastSuccess("Pendaftaran Dikunci", "Akses entry pendaftaran kini telah ditutup.");
+        } else {
+            toastSuccess("Pendaftaran Dibuka", "Akses entry pendaftaran kini telah dibuka kembali.");
+        }
+    } else if (pwd !== null) {
+        toastError("Akses Ditolak", "Password admin salah!");
+    }
+}
+
+function updateLockUI() {
+    const subtitle = document.getElementById("subtitle");
+    const btnLock = document.getElementById("btn-lock-toggle");
+    
+    if (isPendaftaranLocked) {
+        if (subtitle) subtitle.innerHTML = "Pendataan Peserta Lomba Tahun 2026 <br><span class='inline-block mt-2 px-3 py-1 bg-red-100 text-red-700 font-bold rounded-full text-sm border border-red-300 shadow-sm'>⚠️ PENDAFTARAN TELAH DITUTUP ⚠️</span>";
+        if (btnLock) {
+            btnLock.innerHTML = "🔓 Buka Pendaftaran";
+            btnLock.className = "px-4 py-2 bg-yellow-500 text-white text-sm font-bold rounded shadow hover:bg-yellow-600 transition";
+        }
+    } else {
+        if (subtitle) subtitle.innerHTML = "Pendataan Peserta Lomba Tahun 2026";
+        if (btnLock) {
+            btnLock.innerHTML = "🔒 Kunci Pendaftaran";
+            btnLock.className = "px-4 py-2 bg-red-600 text-white text-sm font-bold rounded shadow hover:bg-red-700 transition";
+        }
+    }
+}
+
+    </script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pendaftaran Festival Abu Hurairah ke-13</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS untuk membuat file .xlsx asli (multi-sheet, side-by-side tables) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+    <!-- Load Semua Database Santri -->
+    <script src="data_smp_putra.js"></script>
+    <script src="data_smp_putri.js"></script>
+    <script src="data_sma_fullday.js"></script>
+    <script src="data_sma_putri.js"></script>
+    <script src="data_ma_plus.js"></script>
+    <script src="data_sd_putra.js"></script>
+    <script src="data_sd_putri.js"></script>
+    <script src="data_sd_sembalun_pa.js"></script>
+    <script src="data_sd_sembalun_pi.js"></script>
+    <script src="data_smp_sumbawa_pa.js"></script>
+    <script src="data_smp_sumbawa_pi.js"></script>
+    <script src="data_smp_fullday.js"></script>
+    <script src="data_pgmi.js"></script>
+    <script src="data_sma_ibs_bali.js"></script>
+    <script src="data_ulya.js"></script>
+    <script src="data_wustho.js"></script>
+
+    <!-- Custom CSS untuk Animasi Spinner/Loading + Toast + Sync Badge -->
+    <style>
+        /* ===== Spinner utama ===== */
+        .loader {
+            border-top-color: #22c55e;
+            -webkit-animation: spinner 0.8s linear infinite;
+            animation: spinner 0.8s linear infinite;
+        }
+        .loader-sm {
+            border-top-color: currentColor;
+            -webkit-animation: spinner 0.6s linear infinite;
+            animation: spinner 0.6s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* ===== Animasi pulse untuk badge sync ===== */
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.85); }
+        }
+        .pulse-dot { animation: pulseDot 1.2s ease-in-out infinite; }
+
+        /* ===== Toast notification ===== */
+        #toast-container {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: calc(100vw - 32px);
+            pointer-events: none;
+        }
+        .toast {
+            pointer-events: auto;
+            min-width: 280px;
+            max-width: 360px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            background: #ffffff;
+            color: #1f2937;
+            box-shadow: 0 10px 30px -5px rgba(0,0,0,0.2), 0 4px 10px -2px rgba(0,0,0,0.08);
+            border-left: 4px solid #22c55e;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            transform: translateX(420px);
+            opacity: 0;
+            transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .toast.show {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        .toast.hide {
+            transform: translateX(420px);
+            opacity: 0;
+        }
+        .toast-success { border-left-color: #22c55e; }
+        .toast-error   { border-left-color: #ef4444; }
+        .toast-info    { border-left-color: #3b82f6; }
+        .toast-warn    { border-left-color: #f59e0b; }
+        .toast-icon {
+            flex-shrink: 0;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            color: #fff;
+            margin-top: 1px;
+        }
+        .toast-success .toast-icon { background: #22c55e; }
+        .toast-error   .toast-icon { background: #ef4444; }
+        .toast-info    .toast-icon { background: #3b82f6; }
+        .toast-warn    .toast-icon { background: #f59e0b; }
+        .toast-title { font-weight: 700; margin-bottom: 2px; }
+        .toast-body { color: #4b5563; font-size: 13px; word-break: break-word; }
+        .toast-close {
+            margin-left: auto;
+            cursor: pointer;
+            color: #9ca3af;
+            font-size: 18px;
+            line-height: 1;
+            padding: 0 4px;
+        }
+        .toast-close:hover { color: #4b5563; }
+        .toast-actions { margin-top: 8px; display: flex; gap: 8px; }
+        .toast-btn {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .toast-btn-primary { background: #22c55e; color: #fff; }
+        .toast-btn-primary:hover { background: #16a34a; }
+        .toast-btn-secondary { background: #f3f4f6; color: #374151; border-color: #d1d5db; }
+        .toast-btn-secondary:hover { background: #e5e7eb; }
+
+        /* ===== Sync badge ===== */
+        #sync-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            user-select: none;
+            white-space: nowrap;
+        }
+        #sync-badge.state-idle    { background: rgba(255,255,255,0.18); color: #ecfdf5; }
+        #sync-badge.state-pending { background: rgba(254, 243, 199, 0.95); color: #92400e; }
+        #sync-badge.state-syncing { background: rgba(254, 243, 199, 0.95); color: #92400e; }
+        #sync-badge.state-error   { background: rgba(254, 226, 226, 0.95); color: #991b1b; }
+        #sync-badge.state-loading { background: rgba(219, 234, 254, 0.95); color: #1e40af; }
+        #sync-badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            flex-shrink: 0;
+        }
+        #sync-badge.state-syncing .dot { animation: pulseDot 1s ease-in-out infinite; }
+        #sync-badge.state-loading .dot { animation: pulseDot 0.8s ease-in-out infinite; }
+
+        /* ===== Button loading state ===== */
+        .btn-loading {
+            position: relative;
+            pointer-events: none;
+            opacity: 0.85;
+        }
+        .btn-loading::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 16px;
+            height: 16px;
+            margin: -8px 0 0 -8px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            -webkit-animation: spinner 0.6s linear infinite;
+            animation: spinner 0.6s linear infinite;
+        }
+        .btn-loading > * { visibility: hidden; }
+
+        /* ===== Card pending state ===== */
+        .card-pending {
+            position: relative;
+        }
+        .card-pending::after {
+            content: '';
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #f59e0b;
+            box-shadow: 0 0 0 3px rgba(254, 243, 199, 0.6);
+            animation: pulseDot 1.2s ease-in-out infinite;
+        }
+
+        /* ===== Overlay fade ===== */
+        #sync-overlay { transition: opacity 0.3s ease; }
+        .overlay-hidden { opacity: 0; pointer-events: none; }
+
+        /* ===== Progress bar di overlay ===== */
+        .progress-track {
+            width: 100%;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 999px;
+            overflow: hidden;
+            margin-top: 12px;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #22c55e, #16a34a);
+            border-radius: 999px;
+            width: 30%;
+            transition: width 0.4s ease;
+        }
+        .progress-fill.indeterminate {
+            width: 30%;
+            animation: indeterminate 1.4s ease-in-out infinite;
+        }
+        @keyframes indeterminate {
+            0%   { transform: translateX(-100%); }
+            50%  { transform: translateX(150%); }
+            100% { transform: translateX(350%); }
+        }
+
+        /* ===== Smoother transition untuk screen switch ===== */
+        .screen-fade-in { animation: fadeIn 0.25s ease-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        /* ===== Smooth scrollbar ===== */
+        .smooth-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .smooth-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .smooth-scroll::-webkit-scrollbar-track { background: transparent; }
+
+        /* ============================================================
+           STAR SHOOTER GAME OVERLAY (Hanya muncul saat admin "agus133")
+        ============================================================ */
+        #starShooterOverlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background-color: rgba(5, 5, 16, 0.55);
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            touch-action: none;
+            display: none;
+        }
+        #starShooterOverlay.active { display: block; }
+        #starShooterCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        #starShooterOverlay .ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+        #starShooterOverlay .ss-hidden { display: none !important; }
+        #starShooterOverlay h1 { font-size: 3.5rem; color: #0ff; text-shadow: 0 0 20px #0ff, 0 0 40px #0ff; margin-bottom: 20px; text-transform: uppercase; }
+        #starShooterOverlay h2 { font-size: 2.5rem; color: #f0f; text-shadow: 0 0 15px #f0f; margin-bottom: 10px; }
+        #starShooterOverlay p { font-size: 1.1rem; margin-bottom: 30px; color: #ccc; line-height: 1.5; }
+        #starShooterOverlay button {
+            pointer-events: auto;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            font-family: inherit;
+            font-weight: bold;
+            background: transparent;
+            color: #0ff;
+            border: 2px solid #0ff;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 0 15px rgba(0, 255, 255, 0.3), inset 0 0 15px rgba(0, 255, 255, 0.3);
+            text-transform: uppercase;
+        }
+        #starShooterOverlay button:hover,
+        #starShooterOverlay button:active {
+            background: #0ff;
+            color: #000;
+            box-shadow: 0 0 30px #0ff;
+        }
+        #starShooterHud {
+            position: absolute;
+            top: 20px; left: 20px; right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 10px #fff;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #starShooterHud .score-board { display: flex; flex-direction: column; gap: 5px; text-align: left; }
+        #starShooterHud .high-score { font-size: 1rem; color: #ff0; }
+        #starShooterHud .stats-panel { font-size: 0.9rem; color: #0ff; display: flex; flex-direction: column; gap: 4px; margin-top: 5px; }
+        #starShooterHud .shield-bar { display: flex; gap: 5px; }
+        #starShooterHud .shield-pip { width: 15px; height: 10px; border: 1px solid #0ff; background: transparent; }
+        #starShooterHud .shield-pip.active { background: #0ff; box-shadow: 0 0 8px #0ff; }
+        #ssPauseBtn {
+            pointer-events: auto;
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.5rem;
+            cursor: pointer;
+            text-shadow: 0 0 10px #fff;
+            box-shadow: none;
+            padding: 0;
+        }
+        #ssPauseBtn:hover { color: #0ff; background: none; box-shadow: none; }
+        #ssExitBtn {
+            position: absolute;
+            top: 20px;
+            right: 80px;
+            pointer-events: auto;
+            padding: 8px 18px;
+            font-size: 0.9rem;
+            background: rgba(255, 0, 0, 0.25);
+            color: #fff;
+            border: 2px solid #f33;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            z-index: 20;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+        }
+        #ssExitBtn:hover {
+            background: #f00;
+            color: #fff;
+            box-shadow: 0 0 20px #f00;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+
+    <div id="app" class="max-w-5xl mx-auto p-4 md:p-6 mt-4">
+        <div class="text-center mb-8 relative">
+            <h1 class="text-3xl font-bold text-green-700 mb-2">Festival Abu Hurairah ke-13</h1>
+            <p class="text-gray-500" id="subtitle">Pendataan Peserta Lomba Tahun 2026</p>
+<div class="mt-4 flex flex-wrap justify-center gap-2">
+    <button onclick="bukaDashboardRekap()" class="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded shadow hover:bg-blue-700 transition">Lihat Rekap Pendaftar</button>
+    <button onclick="cekKoneksiServer()" class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded hover:bg-gray-200 transition">Cek Koneksi Server</button>
+    <!-- Tombol Khusus Admin Agus -->
+    <button onclick="toggleLockAdmin()" id="btn-lock-toggle" class="px-4 py-2 bg-red-600 text-white text-sm font-bold rounded shadow hover:bg-red-700 transition">🔒 Kunci Pendaftaran</button>
+</div>
+        </div>
+
+        <!-- LAYAR 1: Pilih Gender -->
+        <div id="screen-gender" class="bg-white rounded-xl shadow-sm p-6 text-center transition screen-fade-in">
+            <h2 class="text-xl font-semibold mb-6">Pilih Kategori</h2>
+            <div class="grid grid-cols-2 gap-4">
+                <button onclick="setGender('PUTRA')" class="py-12 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl border-2 border-blue-200 text-2xl transition">PUTRA</button>
+                <button onclick="setGender('PUTRI')" class="py-12 bg-pink-50 hover:bg-pink-100 text-pink-700 font-bold rounded-xl border-2 border-pink-200 text-2xl transition">PUTRI</button>
+            </div>
+        </div>
+
+        <!-- LAYAR 2: Pilih Lembaga -->
+        <div id="screen-lembaga" class="hidden bg-white rounded-xl shadow-sm p-6 transition">
+            <h2 class="text-xl font-semibold mb-4 border-b pb-2 flex justify-between">
+                Pilih Lembaga
+                <button onclick="adminBack()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">Kembali</button>
+            </h2>
+            <div id="list-lembaga" class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4"></div>
+            <p class="text-sm text-red-500 mt-4">*Setelah dipilih, aplikasi akan terkunci pada Sekolah ini.</p>
+        </div>
+
+        <!-- LAYAR 3: Pilih Kelas -->
+        <div id="screen-kelas" class="hidden bg-white rounded-xl shadow-sm p-6 transition">
+            <div id="header-pilih-kelas" class="mb-4 border-b pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                <!-- Konten header akan dirender oleh JS agar bisa menyisipkan info persentase -->
+            </div>
+            <div id="list-kelas" class="grid grid-cols-2 sm:grid-cols-4 gap-3"></div>
+        </div>
+
+        <!-- LAYAR 4: Dashboard Entry Lomba -->
+        <div id="screen-dashboard" class="hidden">
+            <!-- HEADER STICKY (FLYOVER) -->
+            <div class="sticky top-2 z-40 bg-green-600 bg-opacity-90 backdrop-blur-md text-white p-3 md:p-4 rounded-xl shadow-lg mb-6 flex justify-between items-center flex-wrap gap-2 border border-green-500 transition-all duration-300">
+                <div class="flex flex-col justify-center">
+                    <p class="text-[10px] md:text-xs text-green-100 uppercase tracking-wider font-semibold" id="dash-lembaga">Lembaga</p>
+                    <h3 class="text-lg md:text-xl font-bold leading-tight">
+                        Kelas <span id="dash-kelas"></span>
+                    </h3>
+                </div>
+                <div class="flex gap-2 items-center flex-wrap">
+                    <!-- SYNC BADGE -->
+                    <div id="sync-badge" class="state-idle" onclick="handleSyncBadgeClick()" title="Klik untuk sinkronisasi manual">
+                        <span class="dot"></span>
+                        <span id="sync-badge-text">Memeriksa...</span>
+                    </div>
+                    <button onclick="gantiKelas()" class="bg-white text-green-700 px-3 py-1.5 md:px-4 md:py-2 rounded text-xs md:text-sm font-bold shadow-sm hover:bg-green-50 transition">Ganti Kelas</button>
+                    <button onclick="adminBackLembaga()" class="bg-red-500 text-white px-3 py-1.5 md:px-4 md:py-2 rounded text-xs md:text-sm font-bold shadow-sm hover:bg-red-600 transition">Admin</button>
+                </div>
+            </div>
+
+            <div class="flex gap-4 mb-6 border-b pb-4">
+                <button onclick="setMode('lomba')" id="btn-mode-lomba" class="flex-1 py-3 bg-white text-green-700 font-bold rounded-lg border border-green-200 shadow-sm transition">Entry via Mata Lomba</button>
+                <button onclick="setMode('santri')" id="btn-mode-santri" class="flex-1 py-3 bg-white text-gray-600 font-semibold rounded-lg border border-gray-200 transition hover:bg-gray-50">Entry via Nama Santri</button>
+            </div>
+
+            <div id="mode-lomba" class="hidden space-y-6"></div>
+
+            <div id="mode-santri" class="hidden bg-white rounded-xl shadow-sm p-6">
+                <input type="text" id="search-santri" oninput="searchSantri()" placeholder="Ketik nama santri..." class="w-full p-3 border rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-green-500">
+                <div id="list-santri-search" class="space-y-2 max-h-[60vh] overflow-y-auto smooth-scroll"></div>
+            </div>
+        </div>
+
+        <!-- LAYAR 5: Rekap Dashboard -->
+        <div id="screen-rekap" class="hidden bg-white rounded-xl shadow-sm p-6 transition">
+            <div class="flex justify-between items-center mb-6 border-b pb-2 flex-wrap gap-3">
+                <h2 class="text-2xl font-bold text-gray-800">Rekapitulasi Peserta</h2>
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="downloadExcelRekapGlobal(event)" class="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 font-bold shadow-sm flex-shrink-0">⬇️ Donlot Semua Rekap (XLSX)</button>
+                    <button onclick="bukaDashboardRekap()" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200 font-semibold">Refresh</button>
+                    <button onclick="tutupRekap()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">Tutup</button>
+                </div>
+            </div>
+            <div id="rekap-loading" class="text-center py-10 text-gray-500">
+                <div class="inline-block w-10 h-10 border-4 border-gray-200 border-solid rounded-full loader mb-3"></div>
+                <p>Memuat data dari Google Sheet...</p>
+            </div>
+            <div id="rekap-content" class="space-y-8 hidden"></div>
+        </div>
+    </div>
+
+    <!-- Modal Form -->
+    <div id="modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 class="font-bold text-lg text-gray-800" id="modal-title">Kelola Peserta</h3>
+                <button onclick="closeModal()" class="text-gray-500 hover:text-red-500 text-3xl leading-none">&times;</button>
+            </div>
+
+            <div class="p-4 overflow-y-auto flex-1 space-y-4 smooth-scroll" id="modal-content"></div>
+
+            <div class="p-4 border-t bg-white flex justify-end gap-2">
+                <button onclick="closeModal()" class="px-4 py-2 bg-gray-100 text-gray-700 font-semibold rounded-lg hover:bg-gray-200 transition w-full sm:w-auto">Batal</button>
+                <button id="btn-simpan-modal" class="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 shadow-sm transition w-full sm:w-auto relative">Simpan Pilihan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- OVERLAY LOADING SINKRONISASI -->
+    <div id="sync-overlay" class="fixed inset-0 bg-black bg-opacity-60 hidden items-center justify-center z-50 transition-opacity">
+        <div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center max-w-sm mx-4 text-center">
+            <div class="w-16 h-16 border-4 border-gray-200 border-solid rounded-full loader mb-4"></div>
+            <h3 class="text-xl font-bold text-gray-800 mb-2" id="sync-title">Menyinkronkan Data</h3>
+            <p class="text-sm text-gray-500" id="sync-text">Mohon tunggu, sedang mengambil data pendaftaran dari Google Sheet...</p>
+            <div class="progress-track" id="sync-progress-track" style="display:none;">
+                <div class="progress-fill indeterminate" id="sync-progress-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toast-container"></div>
+
+    <script>
+        // ============================================================
+        //  KONFIGURASI
+        // ============================================================
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzXpkD0GSe9R7XoPWcaYnt8JE5XVc2-Tl-zqDeeDfHBa0DO7Gx7t-MMTLX8IMQ0rot3/exec";
+        const FETCH_TIMEOUT_MS = 30000;     // 30 detik per request
+        const MAX_RETRY = 3;                 // maksimum retry per operasi
+        const RETRY_DELAYS = [1500, 3000, 6000]; // ms
+
+        // ============================================================
+        //  STATE APLIKASI
+        // ============================================================
+        const LEMBAGA = [
+            { id: "sd_putra", nama: "SD IT Putra Abhur Mataram", gender: "PUTRA", jenjang: "SD" },
+            { id: "sd_putri", nama: "SD IT Putri Abhur Mataram", gender: "PUTRI", jenjang: "SD" },
+            { id: "sd_sembalun_pa", nama: "SD IT Sembalun (Putra)", gender: "PUTRA", jenjang: "SD" },
+            { id: "sd_sembalun_pi", nama: "SD IT Sembalun (Putri)", gender: "PUTRI", jenjang: "SD" },
+            { id: "smp_putra", nama: "SMP IT Putra Abhur Mataram", gender: "PUTRA", jenjang: "SMP" },
+            { id: "smp_fullday", nama: "SMP IT Putra Fullday", gender: "PUTRA", jenjang: "SMP" },
+            { id: "smp_putri", nama: "SMP IT Putri Abhur Mataram", gender: "PUTRI", jenjang: "SMP" },
+            { id: "smp_sumbawa_pa", nama: "SMP IT Abhur Sumbawa (Putra)", gender: "PUTRA", jenjang: "SMP" },
+            { id: "smp_sumbawa_pi", nama: "SMP IT Abhur Sumbawa (Putri)", gender: "PUTRI", jenjang: "SMP" },
+            { id: "sma_fullday", nama: "SMA IT Putra Fullday", gender: "PUTRA", jenjang: "SMA" },
+            { id: "sma_putri", nama: "SMA IT Putri Abhur Mataram", gender: "PUTRI", jenjang: "SMA" },
+            { id: "sma_ibs_bali", nama: "SMA IBS AH", gender: "PUTRA", jenjang: "SMA" },
+            { id: "ma_plus", nama: "MA Plus Mataram", gender: "PUTRA", jenjang: "SMA" },
+            { id: "wustho", nama: "PPS Diniyah Wustho", gender: "PUTRA", jenjang: "SMP" },
+            { id: "ulya", nama: "PPS Diniyah Ulya", gender: "PUTRA", jenjang: "SMA" },
+            { id: "pgmi", nama: "PGMI", gender: "PUTRI", jenjang: "PGMI" }
+        ];
+
+        const MATA_LOMBA = {
+            "SD": {
+                "Bahasa": ["[SD] Pidato B.Indo (1-3)", "[SD] Pidato B.Indo (4-6)", "[SD] Puisi B.Indo (1-3)", "[SD] Puisi B.Indo (4-6)", "[SD] Cerita B.Indo (1-3)", "[SD] Cerita B.Indo (4-6)", "[SD] Pidato B.Arab (1-3)", "[SD] Pidato B.Arab (4-6)", "[SD] Cerita B.Arab (1-3)", "[SD] Cerita B.Arab (4-6)", "[SD] Story Telling (4-6)"],
+                "UTHQ": ["[SD] Tahfizh 3 Juz (28-30)", "[SD] Tahfizh 10 Juz (1-10)", "[SD] Tahfizh 10 Juz (1-5, 26-30)", "[SD] Tahfizh 10 Juz (21-30)", "[SD] Tahfizh 15 Juz (1-15)", "[SD] Tahfizh 15 Juz (16-30)"],
+                "KLIK": ["[SD] Cerpen (4-6)"]
+            },
+            "SMP": {
+                "Bahasa": ["[SMP] Pidato B.Indo", "[SMP] Puisi B.Indo", "[SMP] Pidato B.Arab", "[SMP] Cerita B.Arab", "[SMP] Syair B.Arab", "[SMP] Pidato B.Inggris", "[SMP] Story Telling"],
+                "UTHQ": ["[SMP] Tahfizh 3 Juz (1-3)", "[SMP] Tahfizh 3 Juz (28-30)", "[SMP] Tahfizh 5 Juz (1-5)", "[SMP] Tahfizh 5 Juz (26-30)", "[SMP] Tahfizh 10 Juz (1-10)", "[SMP] Tahfizh 10 Juz (1-5, 26-30)", "[SMP] Tahfizh 10 Juz (21-30)", "[SMP] Tahfizh 15 Juz (1-15)", "[SMP] Tahfizh 15 Juz (16-30)"],
+                "KLIK": ["[SMP] Resensi Buku"]
+            },
+            "SMA": {
+                "Bahasa": ["[SMA] Pidato B.Indo", "[SMA] Puisi B.Indo", "[SMA] Pidato B.Arab", "[SMA] Cerita B.Arab", "[SMA] Syair B.Arab", "[SMA] Qira'atul Kutub", "[SMA] Hifzhul Mutun", "[SMA] Pidato B.Inggris", "[SMA] Story Telling"],
+                "UTHQ": ["[SMA] Tahfizh 3 Juz (1-3)", "[SMA] Tahfizh 3 Juz (28-30)", "[SMA] Tahfizh 5 Juz (1-5)", "[SMA] Tahfizh 5 Juz (26-30)", "[SMA] Tahfizh 10 Juz (1-10)", "[SMA] Tahfizh 10 Juz (1-5, 26-30)", "[SMA] Tahfizh 10 Juz (21-30)", "[SMA] Tahfizh 15 Juz (1-15)", "[SMA] Tahfizh 15 Juz (16-30)"],
+                "KLIK": ["[SMA] Majalah Dinding", "[SMA] Resensi Buku", "[SMA] Esai", "[SMA] Khutbah Jum'at"]
+            },
+            "PGMI": {
+                "Bahasa": ["[PGMI] Qira'atul Kutub"],
+                "UTHQ": ["[PGMI] Tahfizh 5 Juz (1-5)", "[PGMI] Tahfizh 5 Juz (26-30)", "[PGMI] Tahfizh 10 Juz (1-10)", "[PGMI] Tahfizh 10 Juz (11-20)", "[PGMI] Tahfizh 10 Juz (21-30)", "[PGMI] Tahfizh 15 Juz (1-15)", "[PGMI] Tahfizh 15 Juz (16-30)"],
+                "KLIK": ["[PGMI] Majalah Dinding", "[PGMI] Resensi Buku", "[PGMI] Esai", "[PGMI] Khutbah Jum'at"]
+            }
+        };
+
+        let currentLembaga = {};
+        let currentKelas = "";
+        let listSantriAktif = [];
+        let stateEntry = {};
+        let currentLombaAktif = "";
+        let currentModalContext = "";
+        let currentSantriAktif = "";
+        let previousScreen = "";
+                let isPendaftaranLocked = localStorage.getItem("app_audisi_locked") === "true";
+                
+        // ============================================================
+        //  STATE TAMBAHAN UNTUK PERSENTASE DAN EXPORT
+        // ============================================================
+        let allRegistrationsData = []; // Menyimpan semua pendaftar
+
+        // ============================================================
+        //  SYNC QUEUE - Antrian operasi yang belum terkirim ke server
+        // ============================================================
+        // Format: [{ id, nama, lomba, action, retry, timestamp }]
+        let pendingSyncOps = [];
+        let isSyncing = false;
+        let lastSyncAt = null;
+        let lastSyncFailed = false;
+        const STORAGE_KEY_PENDING = "app_audisi_pending_sync";
+        const STORAGE_KEY_LASTSYNC = "app_audisi_last_sync";
+
+        // ============================================================
+        //  UTIL: Toast notifications (non-blocking, replace alert)
+        // ============================================================
+        function showToast(opts) {
+            if (typeof opts === 'string') opts = { title: opts };
+            const {
+                title = '',
+                body = '',
+                type = 'info', // success | error | info | warn
+                duration = 4000,
+                actions = []   // [{ label, primary, onClick }]
+            } = opts;
+
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+
+            const iconMap = { success: '✓', error: '!', info: 'i', warn: '!' };
+            const icon = iconMap[type] || 'i';
+
+            const actionsHtml = actions.length > 0
+                ? `<div class="toast-actions">${actions.map((a, i) => `<button class="toast-btn ${a.primary ? 'toast-btn-primary' : 'toast-btn-secondary'}" data-action-idx="${i}">${a.label}</button>`).join('')}</div>`
+                : '';
+
+            toast.innerHTML = `
+                <div class="toast-icon">${icon}</div>
+                <div class="flex-1 min-w-0">
+                    ${title ? `<div class="toast-title">${title}</div>` : ''}
+                    ${body ? `<div class="toast-body">${body}</div>` : ''}
+                    ${actionsHtml}
+                </div>
+                <span class="toast-close">&times;</span>
+            `;
+
+            container.appendChild(toast);
+
+            // Animate in
+            requestAnimationFrame(() => toast.classList.add('show'));
+
+            // Wire actions
+            actions.forEach((a, i) => {
+                const btn = toast.querySelector(`[data-action-idx="${i}"]`);
+                if (btn && typeof a.onClick === 'function') {
+                    btn.addEventListener('click', () => {
+                        dismiss();
+                        a.onClick();
+                    });
+                }
+            });
+
+            // Close button
+            toast.querySelector('.toast-close').addEventListener('click', dismiss);
+
+            // Auto dismiss
+            let timer = null;
+            if (duration > 0) {
+                timer = setTimeout(dismiss, duration);
+            }
+
+            function dismiss() {
+                if (timer) clearTimeout(timer);
+                toast.classList.remove('show');
+                toast.classList.add('hide');
+                setTimeout(() => toast.remove(), 350);
+            }
+
+            return { dismiss };
+        }
+
+        function toastSuccess(title, body) {
+            return showToast({ title, body, type: 'success', duration: 3500 });
+        }
+        function toastError(title, body, opts = {}) {
+            return showToast({ title, body, type: 'error', duration: opts.duration || 8000, actions: opts.actions || [] });
+        }
+        function toastInfo(title, body) {
+            return showToast({ title, body, type: 'info', duration: 4000 });
+        }
+        function toastWarn(title, body) {
+            return showToast({ title, body, type: 'warn', duration: 6000 });
+        }
+
+        // ============================================================
+        //  UTIL: fetch dengan timeout via AbortController
+        // ============================================================
+        function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            return fetch(url, { ...options, signal: controller.signal })
+                .finally(() => clearTimeout(timer));
+        }
+
+        function sleep(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
+
+        // ============================================================
+        //  UTIL: button loading state
+        // ============================================================
+        function setButtonLoading(btn, isLoading, loadingText) {
+            if (!btn) return;
+            if (isLoading) {
+                if (!btn.dataset.originalHtml) {
+                    btn.dataset.originalHtml = btn.innerHTML;
+                    btn.dataset.originalWidth = btn.style.width;
+                }
+                btn.classList.add('btn-loading');
+                btn.disabled = true;
+                if (loadingText) {
+                    btn.innerHTML = loadingText;
+                }
+            } else {
+                btn.classList.remove('btn-loading');
+                btn.disabled = false;
+                if (btn.dataset.originalHtml !== undefined) {
+                    btn.innerHTML = btn.dataset.originalHtml;
+                    delete btn.dataset.originalHtml;
+                }
+            }
+        }
+
+        // ============================================================
+        //  SYNC BADGE - indikator status sinkronisasi
+        // ============================================================
+        function setSyncBadgeState(state, text, opts = {}) {
+            const badge = document.getElementById('sync-badge');
+            const textEl = document.getElementById('sync-badge-text');
+            if (!badge || !textEl) return;
+
+            badge.className = `state-${state}`;
+            textEl.textContent = text;
+
+            // Pulse only for syncing/loading
+            const dot = badge.querySelector('.dot');
+            if (dot) {
+                dot.classList.toggle('pulse-dot', state === 'syncing' || state === 'loading');
+            }
+        }
+
+        function updateSyncBadge() {
+            if (isSyncing) {
+                setSyncBadgeState('syncing', `Menyinkronkan ${pendingSyncOps.length}...`);
+                return;
+            }
+            if (pendingSyncOps.length > 0) {
+                setSyncBadgeState('pending', `Menunggu ${pendingSyncOps.length} perubahan`);
+                return;
+            }
+            if (lastSyncFailed) {
+                setSyncBadgeState('error', `Gagal sync (ketuk)`);
+                return;
+            }
+            if (lastSyncAt) {
+                const t = new Date(lastSyncAt);
+                const hh = String(t.getHours()).padStart(2, '0');
+                const mm = String(t.getMinutes()).padStart(2, '0');
+                setSyncBadgeState('idle', `Tersinkron ${hh}:${mm}`);
+            } else {
+                setSyncBadgeState('idle', 'Tersinkron');
+            }
+        }
+
+        function handleSyncBadgeClick() {
+            if (isSyncing) {
+                toastInfo('Sedang menyinkronkan', 'Mohon tunggu proses sync selesai.');
+                return;
+            }
+            if (pendingSyncOps.length > 0 || lastSyncFailed) {
+                flushPendingSync(null, { manual: true });
+            } else {
+                toastInfo('Status Sync', lastSyncAt
+                    ? `Terakhir tersinkron: ${new Date(lastSyncAt).toLocaleTimeString('id-ID')}`
+                    : 'Belum ada sync terjadi.');
+            }
+        }
+
+        // ============================================================
+        //  SYNC OVERLAY (full-screen loader)
+        // ============================================================
+        function showSyncOverlay(title, text, opts = {}) {
+            const overlay = document.getElementById('sync-overlay');
+            document.getElementById('sync-title').innerText = title || 'Menyinkronkan Data';
+            document.getElementById('sync-text').innerText = text || 'Mohon tunggu...';
+            const track = document.getElementById('sync-progress-track');
+            const fill = document.getElementById('sync-progress-fill');
+            if (opts.progress != null) {
+                track.style.display = 'block';
+                fill.classList.remove('indeterminate');
+                fill.style.width = `${opts.progress}%`;
+            } else if (opts.indeterminate) {
+                track.style.display = 'block';
+                fill.classList.add('indeterminate');
+            } else {
+                track.style.display = 'none';
+            }
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+            overlay.classList.remove('overlay-hidden');
+        }
+
+        function updateSyncOverlay(text, opts = {}) {
+            const textEl = document.getElementById('sync-text');
+            if (text) textEl.innerText = text;
+            const fill = document.getElementById('sync-progress-fill');
+            const track = document.getElementById('sync-progress-track');
+            if (opts.progress != null) {
+                track.style.display = 'block';
+                fill.classList.remove('indeterminate');
+                fill.style.width = `${opts.progress}%`;
+            }
+            if (opts.title) {
+                document.getElementById('sync-title').innerText = opts.title;
+            }
+        }
+
+        function hideSyncOverlay() {
+            const overlay = document.getElementById('sync-overlay');
+            overlay.classList.add('overlay-hidden');
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+            }, 250);
+        }
+
+        // ============================================================
+        //  PERSISTENT SYNC QUEUE - simpan ke localStorage agar tahan refresh
+        // ============================================================
+        function persistPendingOps() {
+            try {
+                localStorage.setItem(STORAGE_KEY_PENDING, JSON.stringify(pendingSyncOps));
+            } catch (e) {
+                console.warn('Gagal persist pending ops:', e);
+            }
+        }
+
+        function loadPendingOps() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY_PENDING);
+                if (raw) {
+                    pendingSyncOps = JSON.parse(raw) || [];
+                }
+                const lastSync = localStorage.getItem(STORAGE_KEY_LASTSYNC);
+                if (lastSync) lastSyncAt = parseInt(lastSync, 10) || null;
+            } catch (e) {
+                console.warn('Gagal load pending ops:', e);
+                pendingSyncOps = [];
+            }
+        }
+
+        function persistLastSync() {
+            if (lastSyncAt) {
+                localStorage.setItem(STORAGE_KEY_LASTSYNC, String(lastSyncAt));
+            }
+        }
+
+        // ============================================================
+        //  QUEUE OPERATION - tambahkan operasi ke antrian
+        // ============================================================
+        function queueSyncOp(namaSantri, namaLomba, action) {
+            // Cek apakah sudah ada operasi konflik (add+remove untuk kombinasi sama)
+            // Jika ada operasi kebalikan yang masih pending, saling menetralkan.
+            const opposingIdx = pendingSyncOps.findIndex(op =>
+                op.nama === namaSantri &&
+                op.lomba === namaLomba &&
+                op.action !== action
+            );
+
+            if (opposingIdx >= 0) {
+                // Netral: hapus operasi kebalikan yang masih pending.
+                pendingSyncOps.splice(opposingIdx, 1);
+                persistPendingOps();
+                updateSyncBadge();
+                return;
+            }
+
+            // Hindari duplikat persis
+            const dupIdx = pendingSyncOps.findIndex(op =>
+                op.nama === namaSantri &&
+                op.lomba === namaLomba &&
+                op.action === action
+            );
+            if (dupIdx >= 0) return;
+
+            pendingSyncOps.push({
+                id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                nama: namaSantri,
+                lomba: namaLomba,
+                action: action,
+                retry: 0,
+                timestamp: Date.now()
+            });
+
+            persistPendingOps();
+            updateSyncBadge();
+        }
+
+        // ============================================================
+        //  FLUSH PENDING - kirim semua operasi pending sebagai SATU batch POST
+        // ============================================================
+        async function flushPendingSync(buttonEl, opts = {}) {
+            const { manual = false, skipOverlay = false } = opts;
+
+            if (isSyncing) {
+                if (manual) toastInfo('Sedang menyinkronkan', 'Tunggu proses sync saat ini selesai.');
+                return;
+            }
+            if (pendingSyncOps.length === 0) {
+                if (manual) toastInfo('Tidak ada perubahan', 'Semua data sudah tersinkron.');
+                return;
+            }
+
+            isSyncing = true;
+            lastSyncFailed = false;
+            updateSyncBadge();
+
+            if (buttonEl) setButtonLoading(buttonEl, true, 'Menyinkronkan...');
+
+            if (!skipOverlay && (pendingSyncOps.length >= 3 || manual)) {
+                showSyncOverlay('Menyinkronkan Data', `Mengirim ${pendingSyncOps.length} perubahan ke Google Sheet...`, {
+                    progress: 10
+                });
+            }
+
+            const opsToSend = pendingSyncOps.slice();
+            const payload = {
+                action: "batch",
+                jenjang: currentLembaga.jenjang,
+                lembaga: currentLembaga.nama,
+                kelas: currentKelas,
+                operations: opsToSend.map(op => ({
+                    nama: op.nama,
+                    lomba: op.lomba,
+                    action: op.action
+                }))
+            };
+
+            try {
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    updateSyncOverlay('Mengirim data ke server...', { progress: 40 });
+                }
+
+                const res = await fetchWithTimeout(GAS_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const result = await res.json();
+                if (result.status !== "success") {
+                    throw new Error(result.message || "Server mengembalikan error.");
+                }
+
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    updateSyncOverlay('Memproses di Google Sheet...', { progress: 80 });
+                }
+
+                // Hapus operasi yang berhasil dari queue.
+                // Untuk simplicity, jika batch sukses (status:success) kita anggap semua sukses
+                // KECUALI yang individual gagal (result.results[i].ok === false).
+                const failedOps = [];
+                if (Array.isArray(result.results)) {
+                    result.results.forEach((r, i) => {
+                        if (!r.ok) {
+                            failedOps.push(opsToSend[i]);
+                        }
+                    });
+                }
+
+                // Hapus yang berhasil
+                pendingSyncOps = pendingSyncOps.filter(op => !opsToSend.includes(op));
+                // Kembalikan yang gagal ke queue (untuk retry berikutnya)
+                if (failedOps.length > 0) {
+                    failedOps.forEach(op => {
+                        if (!pendingSyncOps.includes(op)) pendingSyncOps.push(op);
+                    });
+                }
+
+                persistPendingOps();
+                lastSyncAt = Date.now();
+                lastSyncFailed = failedOps.length > 0;
+                persistLastSync();
+
+                const successCount = result.success != null ? result.success : (opsToSend.length - failedOps.length);
+                const failedCount = failedOps.length;
+
+                if (failedCount > 0) {
+                    toastWarn('Sebagian sync gagal', `${successCount} berhasil, ${failedCount} gagal. Akan di-retry otomatis.`,
+                        { duration: 6000 });
+                    // Auto-retry setelah delay
+                    setTimeout(() => {
+                        if (pendingSyncOps.length > 0 && !isSyncing) {
+                            flushPendingSync(null, { skipOverlay: true });
+                        }
+                    }, RETRY_DELAYS[0]);
+                } else {
+                    if (manual || opsToSend.length >= 3) {
+                        toastSuccess('Berhasil tersinkron', `${successCount} perubahan tersimpan ke Google Sheet dalam ${result.duration_ms || '?'}ms.`);
+                    }
+                    
+                    // TAMBAHAN: Update data rekapitulasi di background agar persentase selalu terupdate setelah sync berhasil
+                    setTimeout(fetchAllRegistrations, 1000); 
+                }
+
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    updateSyncOverlay('Selesai!', { progress: 100 });
+                    setTimeout(hideSyncOverlay, 600);
+                }
+
+            } catch (err) {
+                console.error('flushPendingSync error:', err);
+                lastSyncFailed = true;
+
+                // Tandai retry count
+                pendingSyncOps.forEach(op => {
+                    if (opsToSend.includes(op)) op.retry = (op.retry || 0) + 1;
+                });
+                persistPendingOps();
+
+                const willRetry = pendingSyncOps.some(op => op.retry < MAX_RETRY);
+                toastError(
+                    'Gagal menyinkronkan',
+                    `${err.message}${willRetry ? ' - Akan di-retry otomatis.' : ' - Periksa koneksi lalu coba lagi.'}`,
+                    {
+                        duration: 8000,
+                        actions: willRetry ? [] : [
+                            { label: 'Coba Lagi', primary: true, onClick: () => flushPendingSync(null, { manual: true }) }
+                        ]
+                    }
+                );
+
+                // Auto-retry dengan exponential backoff
+                if (willRetry) {
+                    const delayIdx = Math.min(pendingSyncOps[0]?.retry || 0, RETRY_DELAYS.length - 1);
+                    setTimeout(() => {
+                        if (pendingSyncOps.length > 0 && !isSyncing) {
+                            flushPendingSync(null, { skipOverlay: true });
+                        }
+                    }, RETRY_DELAYS[delayIdx]);
+                }
+
+                if (!skipOverlay && (opsToSend.length >= 3 || manual)) {
+                    hideSyncOverlay();
+                }
+
+            } finally {
+                isSyncing = false;
+                if (buttonEl) setButtonLoading(buttonEl, false);
+                updateSyncBadge();
+            }
+        }
+
+        // ============================================================
+        //  INIT
+        // ============================================================
+        window.onload = async () => {
+                        updateLockUI(); // <-- Tambahkan baris ini
+            loadPendingOps();
+            updateSyncBadge();
+
+            // TAMBAHAN: Mengambil data persentase dan rekapitulasi secara menyeluruh saat web pertama kali dimuat
+            showSyncOverlay('Memuat Data Utama', 'Mengambil data populasi lembaga...', { indeterminate: true });
+            await fetchAllRegistrations({ silent: true }); // silent: jangan toast kalau gagal di init
+            hideSyncOverlay();
+
+            const saved = localStorage.getItem("app_audisi_session");
+            if (saved) {
+                try {
+                    const session = JSON.parse(saved);
+                    currentLembaga = session.lembaga;
+                    if (session.kelas) {
+                        currentKelas = session.kelas;
+                        loadSantriData();
+
+                        showSyncOverlay('Memuat Data', 'Mengambil data pendaftaran dari Google Sheet...', { indeterminate: true });
+                        await loadRegistrationsFromGas();
+                        hideSyncOverlay();
+
+                        showScreen("dashboard");
+
+                        // Jika ada pending ops dari sesi sebelumnya, coba flush
+                        if (pendingSyncOps.length > 0) {
+                            toastInfo('Memproses perubahan tertunda', `${pendingSyncOps.length} perubahan akan dikirim.`);
+                            setTimeout(() => flushPendingSync(null, { skipOverlay: true }), 1500);
+                        }
+                    } else {
+                        renderKelasOptions();
+                        showScreen("kelas");
+                    }
+                } catch (err) {
+                    console.error("Gagal memulihkan sesi:", err);
+                    localStorage.removeItem("app_audisi_session");
+                    showScreen("gender");
+                }
+            } else {
+                setSyncBadgeState('idle', 'Belum sync');
+            }
+
+            // Online/offline listener
+            window.addEventListener('online', () => {
+                toastSuccess('Koneksi internet kembali', 'Sistem akan menyinkronkan ulang data tertunda.');
+                if (pendingSyncOps.length > 0 && !isSyncing) {
+                    setTimeout(() => flushPendingSync(null, { skipOverlay: true }), 500);
+                }
+            });
+            window.addEventListener('offline', () => {
+                toastWarn('Koneksi internet terputus', 'Perubahan akan disimpan lokal dan dikirim saat online kembali.');
+            });
+        };
+
+        function showScreen(screenId) {
+            if (screenId !== 'rekap') {
+                previousScreen = screenId;
+            }
+            ["screen-gender", "screen-lembaga", "screen-kelas", "screen-dashboard", "screen-rekap"].forEach(id => {
+                const el = document.getElementById(id);
+                el.classList.add("hidden");
+                el.classList.remove('screen-fade-in');
+            });
+            const target = document.getElementById(`screen-${screenId}`);
+            target.classList.remove("hidden");
+            target.classList.add('screen-fade-in');
+
+            if (screenId === "dashboard") {
+                document.getElementById("dash-lembaga").innerText = currentLembaga.nama;
+                document.getElementById("dash-kelas").innerText = currentKelas;
+                setMode('lomba');
+                updateSyncBadge();
+            }
+        }
+
+        function adminBack() {
+            showScreen("gender");
+        }
+
+        function adminBackLembaga() {
+            // KASUS KHUSUS: User lembaga SD IT Sembalun (Putra / Putri)
+            // Boleh saling ganti lembaga TANPA password — cukup pilih PUTRA / PUTRI.
+            // Ditambahkan juga tombol "Admin Utama" (password "agus133") untuk kembali
+            // ke halaman awal & bebas memilih lembaga apa saja.
+            if (currentLembaga && (currentLembaga.id === "sd_sembalun_pa" || currentLembaga.id === "sd_sembalun_pi")) {
+                openSwitchLembagaModal(
+                    "Ganti Lembaga SD IT Sembalun",
+                    [
+                        { id: "sd_sembalun_pa", label: "PUTRA",   color: "blue"  },
+                        { id: "sd_sembalun_pi", label: "PUTRI",   color: "pink"  }
+                    ],
+                    { showAdminUtama: true }
+                );
+                return;
+            }
+
+            // KASUS KHUSUS: User lembaga SMP IT Abhur Sumbawa (Putra / Putri)
+            // Boleh saling ganti lembaga TANPA password — cukup pilih PUTRA / PUTRI.
+            // Tombol "Admin Utama" (password "agus133") tetap tersedia untuk kembali
+            // ke halaman awal & bebas memilih lembaga apa saja.
+            if (currentLembaga && (currentLembaga.id === "smp_sumbawa_pa" || currentLembaga.id === "smp_sumbawa_pi")) {
+                openSwitchLembagaModal(
+                    "Ganti Lembaga SMP IT Abhur Sumbawa",
+                    [
+                        { id: "smp_sumbawa_pa", label: "PUTRA", color: "blue" },
+                        { id: "smp_sumbawa_pi", label: "PUTRI", color: "pink" }
+                    ],
+                    { showAdminUtama: true }
+                );
+                return;
+            }
+
+            // KASUS UMUM: minta password admin
+            const pwd = prompt("Masukkan Password Admin:");
+            if (pwd === null) return; // user batal
+
+            if (pwd === "a133") {
+                // Password lama: aplikasi kembali ke halaman awal & bebas pilih lembaga apa saja
+                // Bonus: tampilkan game Star Shooter sebagai overlay hiburan admin.
+                // Setelah user menutup game (klik "X Keluar"), baru lanjut ke halaman awal.
+                localStorage.removeItem("app_audisi_session");
+                openStarShooterGame(function () {
+                    // Callback setelah game ditutup
+                    showScreen("gender");
+                });
+            } else if (pwd === "festival13admin") {
+                // Password khusus admin SMP Putri & SMA Putri: hanya boleh ganti antara dua lembaga ini
+                openSwitchLembagaModal(
+                    "Ganti Lembaga Admin (SMP Putri / SMA Putri)",
+                    [
+                        { id: "smp_putri", label: "SMP Putri", color: "pink"  },
+                        { id: "sma_putri", label: "SMA Putri", color: "purple" }
+                    ]
+                );
+            } else {
+                toastError("Password Salah!", "Coba lagi.");
+            }
+        }
+
+        // ============================================================
+        //  MODAL GANTI LEMBAGA (KHUSUS)
+        // ============================================================
+        function openSwitchLembagaModal(title, options, opts = {}) {
+            const modal = document.getElementById("modal");
+            document.getElementById("modal-title").innerText = title;
+            const content = document.getElementById("modal-content");
+
+            // Peta warna Tailwind untuk tombol
+            const colorMap = {
+                blue:   { bg: "bg-blue-500",   hover: "hover:bg-blue-600",   ring: "focus:ring-blue-300"   },
+                pink:   { bg: "bg-pink-500",   hover: "hover:bg-pink-600",   ring: "focus:ring-pink-300"   },
+                purple: { bg: "bg-purple-500", hover: "hover:bg-purple-600", ring: "focus:ring-purple-300" }
+            };
+
+            // Opsional: tombol Admin Utama (password "agus133") untuk kembali ke halaman awal
+            const adminBtnHtml = opts.showAdminUtama
+                ? `
+                    <div class="mt-2 pt-4 border-t border-dashed border-gray-200">
+                        <button type="button" onclick="adminUtamaPrompt()" class="w-full py-3 px-4 rounded-lg bg-gray-700 text-white font-bold text-sm shadow hover:bg-gray-800 transition focus:outline-none focus:ring-4 focus:ring-gray-300 flex items-center justify-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12l4-4m-4 4l4 4" /></svg>
+                            Admin Utama (Kembali ke Halaman Awal)
+                        </button>
+                        <p class="text-[11px] text-gray-500 mt-1 text-center">
+                            <!--*Khusus admin utama. Memerlukan password "agus133".-->
+                        </p>
+                    </div>
+                `
+                : "";
+
+            content.innerHTML = `
+                <div class="space-y-4">
+                    <p class="text-sm text-gray-600">
+                        Pilih lembaga tujuan di bawah ini. Anda akan langsung diarahkan ke layar pemilihan kelas
+                        untuk lembaga tersebut.
+                    </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-${options.length} gap-3">
+                        ${options.map(opt => {
+                            const c = colorMap[opt.color] || colorMap.blue;
+                            const isCurrent = (currentLembaga && currentLembaga.id === opt.id);
+                            const lembaga = LEMBAGA.find(l => l.id === opt.id);
+                            const namaLembaga = lembaga ? lembaga.nama : opt.id;
+                            const btnClass = isCurrent
+                                ? `py-6 px-4 rounded-xl text-white font-bold text-lg shadow-md opacity-60 cursor-not-allowed ${c.bg}`
+                                : `py-6 px-4 rounded-xl text-white font-bold text-lg shadow-md transition focus:outline-none focus:ring-4 ${c.bg} ${c.hover} ${c.ring}`;
+                            return `
+                                <button type="button" ${isCurrent ? "disabled" : `onclick="switchLembagaTo('${opt.id}')"`} class="${btnClass}">
+                                    <span class="block text-2xl mb-1">${opt.label}</span>
+                                    <span class="block text-xs font-normal text-white/90">${namaLembaga}</span>
+                                    ${isCurrent ? `<span class="block text-[10px] font-bold text-white/80 mt-2">Lembaga Aktif</span>` : ""}
+                                </button>
+                            `;
+                        }).join("")}
+                    </div>
+                    <p class="text-xs text-gray-500">
+                        *Tombol yang menandai "Lembaga Aktif" menunjukkan lembaga yang sedang Anda gunakan sekarang.
+                        Klik lembaga lain untuk berpindah.
+                    </p>
+                    ${adminBtnHtml}
+                </div>
+            `;
+
+            // Sembunyikan tombol "Simpan Pilihan" karena modal ini hanya untuk ganti lembaga
+            const btnSave = document.getElementById("btn-simpan-modal");
+            if (btnSave) btnSave.style.display = "none";
+
+            modal.classList.remove("hidden");
+            modal.classList.add("flex");
+        }
+
+        // Prompt password untuk Admin Utama (khusus dipakai dari dalam modal ganti lembaga)
+        function adminUtamaPrompt() {
+            const pwd = prompt("Masukkan Password Admin Utama:");
+            if (pwd === null) return; // user batal
+            if (pwd === "a133") {
+                closeModal();
+                localStorage.removeItem("app_audisi_session");
+                // Reset state lokal supaya tidak ada sisa data dari lembaga sebelumnya
+                stateEntry = {};
+                currentKelas = "";
+                toastSuccess("Mode Admin Utama", "Anda kembali ke halaman awal. Bebas memilih lembaga.");
+                // Tampilkan game Star Shooter sebagai overlay hiburan admin.
+                // Setelah user menutup game (klik "X Keluar"), baru lanjut ke halaman awal.
+                openStarShooterGame(function () {
+                    showScreen("gender");
+                });
+            } else {
+                toastError("Password Salah!", "Coba lagi.");
+            }
+        }
+
+        function switchLembagaTo(lembagaId) {
+            const lembaga = LEMBAGA.find(l => l.id === lembagaId);
+            if (!lembaga) {
+                toastError("Lembaga tidak ditemukan", `ID: ${lembagaId}`);
+                return;
+            }
+            // Tutup modal terlebih dahulu
+            closeModal();
+            // Pulihkan tombol Simpan Pilihan (agar tidak hilang saat modal lain dibuka)
+            const btnSave = document.getElementById("btn-simpan-modal");
+            if (btnSave) btnSave.style.display = "";
+
+            // Terapkan lembaga baru & simpan session
+            currentLembaga = lembaga;
+            localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
+
+            // Reset state entry lokal supaya tidak ikut terbawa dari lembaga lama
+            stateEntry = {};
+            // Reset kelas aktif supaya renderKelasOptions tampil bersih
+            currentKelas = "";
+
+            toastSuccess("Berhasil ganti lembaga", `Sekarang aktif: ${currentLembaga.nama}`);
+
+            // Render ulang daftar kelas dan arahkan ke layar pemilih kelas
+            renderKelasOptions();
+            showScreen("kelas");
+        }
+
+        function setGender(gender) {
+                        if (isPendaftaranLocked) {
+                        toastError("Pendaftaran Ditutup", "Pendaftaran saat ini sedang dikunci oleh panitia.");
+                        return;
+                        }
+                        const listDiv = document.getElementById("list-lembaga");
+            listDiv.innerHTML = "";
+            const filtered = LEMBAGA.filter(l => l.gender === gender);
+
+            // Semua lembaga sudah aktif (SD Sembalun & SMP Sumbawa sudah ada datanya)
+            const disabledIds = [];
+
+            filtered.forEach(lembaga => {
+                const btn = document.createElement("button");
+
+                if (disabledIds.includes(lembaga.id)) {
+                    btn.disabled = true;
+                    btn.className = "p-4 border rounded-lg text-left bg-gray-100 opacity-60 cursor-not-allowed shadow-sm";
+                    btn.innerHTML = `<span class="block font-bold text-gray-500">${lembaga.nama}</span><span class="text-xs text-red-500 font-semibold">Belum Ada Data</span>`;
+                } else {
+                    // TAMBAHAN: Dapatkan nilai statisik untuk progress bar (persentase)
+                    let stats = getStatsLembaga(lembaga.id, lembaga.nama);
+                    
+                    btn.className = "p-4 border rounded-lg text-left bg-white hover:bg-green-50 focus:ring focus:ring-green-200 transition shadow-sm relative overflow-hidden";
+                    btn.innerHTML = `
+                        <div class="relative z-10">
+                            <span class="block font-bold text-gray-800">${lembaga.nama}</span>
+                            <span class="text-xs text-gray-500 mb-2 block">${lembaga.jenjang}</span>
+                            
+                            <!-- TAMBAHAN: Progress bar -->
+                            <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1 mt-1">
+                                <div class="bg-green-500 h-1.5 rounded-full" style="width: ${stats.pct}%"></div>
+                            </div>
+                            <span class="text-[10px] font-bold text-gray-600">Pendaftar: ${stats.regCount} / ${stats.popCount} (${stats.pct}%)</span>
+                        </div>
+                    `;
+                    btn.onclick = () => setLembaga(lembaga);
+                }
+
+                listDiv.appendChild(btn);
+            });
+            showScreen("lembaga");
+        }
+
+        function setLembaga(lembaga) {
+            currentLembaga = lembaga;
+            localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
+            renderKelasOptions();
+            showScreen("kelas");
+        }
+
+        function getDBForLembaga(idLembaga) {
+            if (idLembaga === "smp_putra" && typeof DATA_SANTRI_SMP_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMP_PUTRA_ABHUR_MATARAM;
+            if (idLembaga === "smp_putri" && typeof DATA_SANTRI_SMP_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMP_PUTRI_ABHUR_MATARAM;
+            if (idLembaga === "sma_fullday" && typeof DATA_SANTRI_SMA_FULLDAY_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_FULLDAY_PUTRA_ABHUR_MATARAM;
+            if (idLembaga === "sma_putri" && typeof DATA_SANTRI_SMA_IT_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_IT_PUTRI_ABHUR_MATARAM;
+            if (idLembaga === "ma_plus" && typeof DATA_SANTRI_MA_PLUS_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_MA_PLUS_PUTRA_ABHUR_MATARAM;
+            if (idLembaga === "sd_sembalun_pa" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRA !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRA;
+            if (idLembaga === "sd_sembalun_pi" && typeof DATA_SANTRI_SD_IT_SEMBALUN_PUTRI !== "undefined") return DATA_SANTRI_SD_IT_SEMBALUN_PUTRI;
+            if (idLembaga === "smp_sumbawa_pa" && typeof DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRA !== "undefined") return DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRA;
+            if (idLembaga === "smp_sumbawa_pi" && typeof DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRI !== "undefined") return DATA_SANTRI_SMP_IT_ABHUR_SUMBAWA_PUTRI;
+            if (idLembaga === "sd_putra" && typeof DATA_SANTRI_SD_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SD_PUTRA_ABHUR_MATARAM;
+            if (idLembaga === "sd_putri" && typeof DATA_SANTRI_SD_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SD_PUTRI_ABHUR_MATARAM;
+            if (idLembaga === "smp_fullday" && typeof DATA_SANTRI_SMP_FULLDAY_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMP_FULLDAY_PUTRA_ABHUR_MATARAM;
+            if (idLembaga === "pgmi" && typeof DATA_MAHASISWA_PGMI_PUTRI_ABHUR_MATARAM !== "undefined") return DATA_MAHASISWA_PGMI_PUTRI_ABHUR_MATARAM;
+            if (idLembaga === "sma_ibs_bali" && typeof DATA_SANTRI_SMA_IBS_AH_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_SMA_IBS_AH_PUTRA_ABHUR_MATARAM;
+            if (idLembaga === "ulya" && typeof DATA_SANTRI_PPS_ULYA_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_PPS_ULYA_PUTRA_ABHUR_MATARAM;
+            if (idLembaga === "wustho" && typeof DATA_SANTRI_PPS_WUSTHO_PUTRA_ABHUR_MATARAM !== "undefined") return DATA_SANTRI_PPS_WUSTHO_PUTRA_ABHUR_MATARAM;
+            return {};
+        }
+
+        function renderKelasOptions() {
+            const classDiv = document.getElementById("list-kelas");
+            classDiv.innerHTML = "";
+
+            let db = getDBForLembaga(currentLembaga.id);
+
+            if (Object.keys(db).length === 0) {
+                toastError("Database tidak ditemukan", `Database santri untuk lembaga "${currentLembaga.nama}" belum dimuat.`);
+                return;
+            }
+
+            // TAMBAHAN: Update info header kelas beserta persentase sekolah & tombol XLS
+            let statsLembaga = getStatsLembaga(currentLembaga.id, currentLembaga.nama);
+            const headerKelas = document.getElementById("header-pilih-kelas");
+            if (headerKelas) {
+                headerKelas.innerHTML = `
+                    <div>
+                        <h2 class="text-xl font-semibold m-0">Pilih Kelas</h2>
+                        <div class="text-[11px] font-semibold text-green-700 mt-1 block">
+                            Total Pendaftar Lembaga: ${statsLembaga.regCount} / ${statsLembaga.popCount} (${statsLembaga.pct}%)
+                        </div>
+                    </div>
+                    <div class="flex gap-2 flex-wrap sm:flex-nowrap mt-3 sm:mt-0">
+                        ${statsLembaga.regCount > 0 ? `<button onclick="downloadExcelLembaga('${currentLembaga.nama}')" class="text-xs bg-green-600 text-white px-3 py-1.5 rounded shadow hover:bg-green-700 font-bold whitespace-nowrap">⬇️ Donlot Rekap XLS</button>` : ''}
+                        <button onclick="adminBackLembaga()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded hover:bg-red-200 font-bold whitespace-nowrap">Admin: Ganti Lembaga</button>
+                    </div>
+                `;
+            }
+
+            Object.keys(db).forEach(kls => {
+                const btn = document.createElement("button");
+                // TAMBAHAN: Perhitungan persentase per kelas
+                let statsKelas = getStatsKelas(currentLembaga.id, currentLembaga.nama, kls);
+                
+                btn.className = "py-3 px-4 border rounded-lg font-bold text-gray-700 hover:bg-green-500 hover:text-white transition shadow-sm relative";
+                
+                btn.innerHTML = `
+                    <div class="mb-1 text-base text-center">${kls}</div>
+                    <!-- TAMBAHAN: Progress bar -->
+                    <div class="w-full bg-gray-200 rounded-full h-1.5 mb-1 mt-2">
+                        <div class="bg-blue-500 h-1.5 rounded-full" style="width: ${statsKelas.pct}%"></div>
+                    </div>
+                    <div class="text-[10px] text-gray-500 font-semibold text-center">${statsKelas.regCount} / ${statsKelas.popCount} (${statsKelas.pct}%)</div>
+                `;
+                
+                btn.onclick = async () => {
+                    currentKelas = kls;
+                    localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga, kelas: currentKelas }));
+                    loadSantriData(db[kls]);
+
+                    setSyncBadgeState('loading', 'Memuat data...');
+                    showSyncOverlay('Memuat Data', 'Mengambil data pendaftaran dari Google Sheet...', { indeterminate: true });
+
+                    // Pindah layar DULU agar UI responsif, lalu sync di background
+                    showScreen("dashboard");
+
+                    try {
+                        const berhasil = await loadRegistrationsFromGas();
+                        if (!berhasil) {
+                            toastWarn('Gagal memuat data lama', 'Aplikasi tetap bisa dipakai, perubahan akan tetap tersimpan.');
+                        } else {
+                            // Refresh tampilan setelah data lama dimuat
+                            if (!document.getElementById("mode-santri").classList.contains("hidden")) searchSantri();
+                            if (!document.getElementById("mode-lomba").classList.contains("hidden")) setMode('lomba');
+                        }
+                    } finally {
+                        hideSyncOverlay();
+                        updateSyncBadge();
+
+                        // Jika ada pending ops, flush
+                        if (pendingSyncOps.length > 0) {
+                            setTimeout(() => flushPendingSync(null, { skipOverlay: true }), 800);
+                        }
+                    }
+                };
+                classDiv.appendChild(btn);
+            });
+        }
+
+        function gantiKelas() {
+            // Sebelum ganti kelas, pastikan semua pending sudah dikirim
+            if (pendingSyncOps.length > 0) {
+                toastInfo('Menyinkronkan dulu', `${pendingSyncOps.length} perubahan akan dikirim sebelum ganti kelas.`);
+                flushPendingSync(null, { manual: true }).then(() => {
+                    localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
+                    currentKelas = "";
+                    renderKelasOptions();
+                    showScreen("kelas");
+                });
+            } else {
+                localStorage.setItem("app_audisi_session", JSON.stringify({ lembaga: currentLembaga }));
+                currentKelas = "";
+                renderKelasOptions();
+                showScreen("kelas");
+            }
+        }
+
+        function loadSantriData(dataArr) {
+            if (dataArr) {
+                listSantriAktif = dataArr;
+            } else {
+                let db = getDBForLembaga(currentLembaga.id);
+                listSantriAktif = db[currentKelas] || [];
+            }
+
+            listSantriAktif.forEach(s => {
+                if (typeof stateEntry[s] === 'undefined') stateEntry[s] = [];
+            });
+        }
+
+        function setMode(mode) {
+            const btnLomba = document.getElementById("btn-mode-lomba");
+            const btnSantri = document.getElementById("btn-mode-santri");
+
+            if (mode === 'lomba') {
+                btnLomba.className = "flex-1 py-3 bg-white text-green-700 font-bold rounded-lg border border-green-200 shadow-sm transition";
+                btnSantri.className = "flex-1 py-3 bg-white text-gray-600 font-semibold rounded-lg border border-gray-200 transition hover:bg-gray-50";
+                document.getElementById("mode-lomba").classList.remove("hidden");
+                document.getElementById("mode-santri").classList.add("hidden");
+                renderCardsLomba();
+            } else {
+                btnSantri.className = "flex-1 py-3 bg-white text-green-700 font-bold rounded-lg border border-green-200 shadow-sm transition";
+                btnLomba.className = "flex-1 py-3 bg-white text-gray-600 font-semibold rounded-lg border border-gray-200 transition hover:bg-gray-50";
+                document.getElementById("mode-santri").classList.remove("hidden");
+                document.getElementById("mode-lomba").classList.add("hidden");
+                searchSantri();
+            }
+        }
+
+        // ================= SINKRONISASI DATA GOOGLE SHEET =================
+        function findCabangForLomba(namaLomba) {
+            const jenjangLomba = MATA_LOMBA[currentLembaga.jenjang] || {};
+            for (const cabang in jenjangLomba) {
+                if (jenjangLomba[cabang].includes(namaLomba)) return cabang;
+            }
+            return "";
+        }
+
+        async function loadRegistrationsFromGas() {
+            listSantriAktif.forEach(s => stateEntry[s] = []);
+
+            const params = new URLSearchParams({
+                action: "registrations",
+                jenjang: currentLembaga.jenjang || "",
+                lembaga: currentLembaga.nama || "",
+                kelas: currentKelas || ""
+            });
+
+            try {
+                updateSyncOverlay('Menghubungi Google Sheet...', {});
+
+                const res = await fetchWithTimeout(`${GAS_URL}?${params.toString()}`, {
+                    method: "GET",
+                    cache: "no-store"
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const result = await res.json();
+                if (result.status !== "success") {
+                    throw new Error(result.message || "Server mengembalikan error");
+                }
+
+                const loaded = (result.data || []).length;
+                updateSyncOverlay(`Memproses ${loaded} data pendaftaran...`, {});
+
+                (result.data || []).forEach(item => {
+                    if (!stateEntry[item.nama]) return;
+
+                    const cabang = item.cabang || findCabangForLomba(item.lomba);
+                    if (!stateEntry[item.nama].some(x => x.nama === item.lomba)) {
+                        stateEntry[item.nama].push({
+                            nama: item.lomba,
+                            cabang: cabang
+                        });
+                    }
+                });
+
+                lastSyncAt = Date.now();
+                persistLastSync();
+                lastSyncFailed = false;
+                updateSyncBadge();
+
+                console.log(`Pendaftaran lama berhasil dimuat: ${loaded} dalam ${result.duration_ms || '?'}ms`);
+                return true;
+            } catch (err) {
+                console.error("Gagal memuat pendaftaran dari Google Sheet:", err);
+                lastSyncFailed = true;
+                updateSyncBadge();
+                return false;
+            }
+        }
+
+        // ================= MODE 1: ENTRY VIA LOMBA =================
+        function renderCardsLomba() {
+            const container = document.getElementById("mode-lomba");
+            container.innerHTML = "";
+            const jenjangLomba = MATA_LOMBA[currentLembaga.jenjang];
+
+            for (let cabang in jenjangLomba) {
+                const wrapper = document.createElement("div");
+                wrapper.innerHTML = `<h3 class="font-bold text-lg text-gray-700 border-b pb-2 mb-3">Cabang ${cabang}</h3>`;
+                const grid = document.createElement("div");
+                grid.className = "grid grid-cols-1 md:grid-cols-2 gap-4";
+
+                let countLomba = 0;
+
+                jenjangLomba[cabang].forEach(lomba => {
+                    if (currentLembaga.jenjang === "SD") {
+                        const isKelasBawah = /^[123]/.test(currentKelas);
+                        const isKelasAtas = /^[456]/.test(currentKelas);
+                        if (isKelasBawah && lomba.includes("(4-6)")) return;
+                        if (isKelasAtas && lomba.includes("(1-3)")) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMP
+                    if (lomba.includes("[SMP] Tahfizh 3 Juz")) {
+                        const allowedSmp = ["smp_fullday", "smp_sumbawa_pa", "smp_sumbawa_pi"];
+                        if (!allowedSmp.includes(currentLembaga.id)) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMA
+                    if (lomba.includes("[SMA] Tahfizh 3 Juz")) {
+                        const allowedSma = ["sma_fullday"];
+                        if (!allowedSma.includes(currentLembaga.id)) return;
+                    }
+
+                    countLomba++;
+                    const card = document.createElement("div");
+                    card.className = "bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between";
+
+                    // Hitung jumlah pendaftar untuk lomba ini dari stateEntry
+                    let pesertaCount = 0;
+                    listSantriAktif.forEach(s => {
+                        if (stateEntry[s] && stateEntry[s].some(l => l.nama === lomba)) pesertaCount++;
+                    });
+
+                    card.innerHTML = `
+                        <div class="flex justify-between items-start mb-4">
+                            <h4 class="font-semibold text-gray-800 text-sm flex-1">${lomba}</h4>
+                            ${pesertaCount > 0 ? `<span class="ml-2 inline-flex items-center justify-center min-w-[24px] h-6 px-2 bg-green-100 text-green-700 text-xs font-bold rounded-full">${pesertaCount}</span>` : ''}
+                        </div>
+                        <button onclick="openModalLomba('${lomba.replace(/'/g, "\\'")}', '${cabang}')" class="w-full py-2 bg-green-50 text-green-700 font-semibold rounded border border-green-200 hover:bg-green-100 transition text-sm">Kelola Peserta</button>
+                    `;
+                    grid.appendChild(card);
+                });
+
+                if (countLomba > 0) {
+                    wrapper.appendChild(grid);
+                    container.appendChild(wrapper);
+                }
+            }
+        }
+
+        function openModalLomba(lomba, cabang) {
+            if (isPendaftaranLocked) {
+                        toastError("Pendaftaran Ditutup", "Tidak bisa menambah atau mengubah peserta lomba. Pendaftaran telah dikunci.");
+                        return;
+                        }
+                        currentModalContext = 'lomba';
+            currentLombaAktif = { nama: lomba, cabang: cabang };
+            document.getElementById("modal-title").innerText = "Peserta: " + lomba;
+            const content = document.getElementById("modal-content");
+            content.innerHTML = "";
+
+            listSantriAktif.forEach((santri, index) => {
+                const lombaTerpilih = stateEntry[santri];
+                const isDiLombaIni = lombaTerpilih.find(l => l.nama === lomba) !== undefined;
+
+                let isDisabled = false;
+                let infoText = "";
+                let bgClass = "hover:bg-gray-50";
+
+                if (!isDiLombaIni) {
+                    const isCabangSamaAda = lombaTerpilih.find(l => l.cabang === cabang);
+                    if (isCabangSamaAda) {
+                        isDisabled = true;
+                        infoText = `<span class="text-[11px] text-red-500 font-bold block">Terkunci: Sudah mendaftar di Cabang ${cabang}</span>`;
+                        bgClass = "bg-gray-100 opacity-60 cursor-not-allowed";
+                    } else if (lombaTerpilih.length >= 2) {
+                        isDisabled = true;
+                        infoText = `<span class="text-[11px] text-red-500 font-bold block">Terkunci: Sudah mencapai batas 2 Lomba</span>`;
+                        bgClass = "bg-gray-100 opacity-60 cursor-not-allowed";
+                    }
+                }
+
+                if (lombaTerpilih.length > 0 && !isDisabled) {
+                    const listNamaLomba = lombaTerpilih.filter(l => l.nama !== lomba).map(l => l.nama).join(", ");
+                    if (listNamaLomba) {
+                        infoText = `<span class="text-[11px] text-blue-500 font-medium block mt-1">Sudah ikut: ${listNamaLomba}</span>`;
+                    }
+                }
+
+                const label = document.createElement("label");
+                label.className = `p-3 border rounded-lg flex items-center gap-4 transition ${isDisabled ? bgClass : 'cursor-pointer ' + bgClass}`;
+
+                label.innerHTML = `
+                    <input type="checkbox" value="${santri.replace(/"/g, '&quot;')}" class="w-5 h-5 text-green-600 border-gray-300 rounded focus:ring-green-500 modal-checkbox"
+                    ${isDiLombaIni ? "checked" : ""} ${isDisabled ? "disabled" : ""}>
+                    <div class="flex-1 leading-tight">
+                        <span class="font-semibold text-sm text-gray-800">${santri}</span>
+                        ${infoText}
+                    </div>
+                `;
+                content.appendChild(label);
+            });
+
+            document.getElementById("btn-simpan-modal").onclick = simpanDariModalLomba;
+            document.getElementById("modal").classList.remove("hidden");
+            document.getElementById("modal").classList.add("flex");
+        }
+
+        async function simpanDariModalLomba() {
+            const checkboxes = document.querySelectorAll('.modal-checkbox');
+            let addedCount = 0;
+            let removedCount = 0;
+
+            const btnSimpan = document.getElementById("btn-simpan-modal");
+
+            checkboxes.forEach(chk => {
+                const santri = chk.value;
+                const isChecked = chk.checked;
+                const idxDiState = stateEntry[santri].findIndex(l => l.nama === currentLombaAktif.nama);
+
+                if (isChecked && idxDiState === -1) {
+                    stateEntry[santri].push(currentLombaAktif);
+                    queueSyncOp(santri, currentLombaAktif.nama, "add");
+                    addedCount++;
+                } else if (!isChecked && idxDiState !== -1) {
+                    stateEntry[santri].splice(idxDiState, 1);
+                    queueSyncOp(santri, currentLombaAktif.nama, "remove");
+                    removedCount++;
+                }
+            });
+
+            const totalChanges = addedCount + removedCount;
+            if (totalChanges === 0) {
+                closeModal();
+                toastInfo('Tidak ada perubahan', 'Tidak ada data yang berubah.');
+                return;
+            }
+
+            // Tutup modal dulu agar UI responsive
+            closeModal();
+            renderCardsLomba(); // refresh peserta count
+
+            // Lalu sync ke server
+            await flushPendingSync(btnSimpan, { manual: false });
+
+            // Bila ada error sinkronisasi dan sync belum selesai, badge akan tetap menunjukkan "Gagal"
+            if (pendingSyncOps.length === 0 && !lastSyncFailed) {
+                toastSuccess('Perubahan tersimpan', `${addedCount} ditambahkan, ${removedCount} dihapus.`);
+            }
+        }
+
+        // ================= MODE 2: ENTRY VIA SANTRI =================
+        function searchSantri() {
+            const keyword = document.getElementById("search-santri").value.toLowerCase();
+            const container = document.getElementById("list-santri-search");
+            container.innerHTML = "";
+
+            const filtered = listSantriAktif.filter(s => s.toLowerCase().includes(keyword));
+
+            filtered.forEach(santri => {
+                const lombaTerpilih = stateEntry[santri];
+                const item = document.createElement("div");
+                item.className = "p-4 border rounded-xl flex flex-col sm:flex-row justify-between sm:items-center gap-3 bg-white";
+
+                // Cek apakah ada operasi pending untuk santri ini
+                const hasPending = pendingSyncOps.some(op => op.nama === santri);
+                const pendingBadge = hasPending
+                    ? `<span class="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full font-semibold ml-2"><span class="w-1.5 h-1.5 bg-amber-500 rounded-full pulse-dot"></span>pending sync</span>`
+                    : '';
+
+                let textInfo = lombaTerpilih.length > 0
+                    ? `<span class="text-blue-600 font-semibold">${lombaTerpilih.map(l => l.nama).join("<br>")}</span>`
+                    : `<span class="text-gray-400">Belum ada lomba dipilih</span>`;
+
+                item.innerHTML = `
+                    <div class="w-full sm:w-1/2">
+                        <p class="font-bold text-gray-800">${santri}${pendingBadge}</p>
+                        <p class="text-xs mt-1 leading-relaxed">${textInfo}</p>
+                    </div>
+                    <div class="flex sm:w-auto items-center">
+                        <button onclick="openModalSantri('${santri.replace(/'/g, "\\'")}')" class="px-4 py-2 bg-yellow-500 text-white font-semibold rounded hover:bg-yellow-600 text-sm transition">Ubah / Tambah Lomba</button>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<p class="text-center text-gray-400 py-6">Tidak ada santri ditemukan untuk "${keyword}".</p>`;
+            }
+        }
+
+        function openModalSantri(santriStr) {
+            if (isPendaftaranLocked) {
+                        toastError("Pendaftaran Ditutup", "Tidak bisa menambah atau mengubah lomba santri. Pendaftaran telah dikunci.");
+                        return;
+                        }
+                        currentModalContext = 'santri';
+            currentSantriAktif = santriStr;
+            document.getElementById("modal-title").innerText = "Kelola Lomba: " + santriStr;
+            const content = document.getElementById("modal-content");
+            content.innerHTML = "";
+
+            const lombaTerpilih = stateEntry[santriStr];
+            const jenjangLomba = MATA_LOMBA[currentLembaga.jenjang];
+
+            for (let cabang in jenjangLomba) {
+                const divCabang = document.createElement("div");
+                divCabang.innerHTML = `<h4 class="font-bold text-gray-700 bg-gray-100 p-2 rounded text-sm mb-2">Cabang ${cabang}</h4>`;
+
+                const isCabangTerisi = lombaTerpilih.find(l => l.cabang === cabang) !== undefined;
+                const batasPenuh = lombaTerpilih.length >= 2;
+
+                let countLomba = 0;
+
+                jenjangLomba[cabang].forEach(lomba => {
+                    if (currentLembaga.jenjang === "SD") {
+                        const isKelasBawah = /^[123]/.test(currentKelas);
+                        const isKelasAtas = /^[456]/.test(currentKelas);
+                        if (isKelasBawah && lomba.includes("(4-6)")) return;
+                        if (isKelasAtas && lomba.includes("(1-3)")) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMP
+                    if (lomba.includes("[SMP] Tahfizh 3 Juz")) {
+                        const allowedSmp = ["smp_fullday", "smp_sumbawa_pa", "smp_sumbawa_pi"];
+                        if (!allowedSmp.includes(currentLembaga.id)) return;
+                    }
+
+                    // FILTERING UTHQ 3 Juz untuk SMA
+                    if (lomba.includes("[SMA] Tahfizh 3 Juz")) {
+                        const allowedSma = ["sma_fullday"];
+                        if (!allowedSma.includes(currentLembaga.id)) return;
+                    }
+
+                    countLomba++;
+                    const isChecked = lombaTerpilih.find(l => l.nama === lomba) !== undefined;
+
+                    let isDisabled = false;
+                    let textRed = "";
+                    if (!isChecked) {
+                        if (isCabangTerisi) {
+                            isDisabled = true;
+                            textRed = " (Maks 1 per cabang)";
+                        } else if (batasPenuh) {
+                            isDisabled = true;
+                            textRed = " (Batas 2 Lomba Penuh)";
+                        }
+                    }
+
+                    const label = document.createElement("label");
+                    label.className = `flex items-center gap-3 p-2 border-b ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-50'}`;
+                    label.innerHTML = `
+                        <input type="checkbox" value="${lomba.replace(/"/g, '&quot;')}" data-cabang="${cabang}" class="w-4 h-4 text-green-600 modal-santri-checkbox" ${isChecked ? 'checked' : ''} ${isDisabled ? 'disabled' : ''}>
+                        <span class="text-sm">${lomba} <span class="text-red-500 text-[10px]">${textRed}</span></span>
+                    `;
+
+                    const chk = label.querySelector('input');
+                    chk.addEventListener('change', () => {
+                        updateStateTempDanRefreshModal(chk.value, chk.dataset.cabang, chk.checked);
+                    });
+
+                    divCabang.appendChild(label);
+                });
+
+                if (countLomba > 0) content.appendChild(divCabang);
+            }
+
+            document.getElementById("btn-simpan-modal").onclick = simpanDariModalSantri;
+            document.getElementById("modal").classList.remove("hidden");
+            document.getElementById("modal").classList.add("flex");
+        }
+
+        function updateStateTempDanRefreshModal(lomba, cabang, isChecked) {
+            if (isChecked) {
+                stateEntry[currentSantriAktif].push({ nama: lomba, cabang: cabang });
+                queueSyncOp(currentSantriAktif, lomba, "add");
+            } else {
+                const idx = stateEntry[currentSantriAktif].findIndex(l => l.nama === lomba);
+                if (idx >= 0) stateEntry[currentSantriAktif].splice(idx, 1);
+                queueSyncOp(currentSantriAktif, lomba, "remove");
+            }
+            updateSyncBadge();
+            // Refresh modal untuk update disabled state
+            openModalSantri(currentSantriAktif);
+        }
+
+        async function simpanDariModalSantri() {
+            const btnSimpan = document.getElementById("btn-simpan-modal");
+
+            // Tutup modal dulu
+            closeModal();
+            searchSantri();
+
+            // Flush pending jika ada
+            if (pendingSyncOps.length > 0) {
+                await flushPendingSync(btnSimpan, { manual: false });
+                if (pendingSyncOps.length === 0 && !lastSyncFailed) {
+                    toastSuccess('Perubahan tersimpan', `Data lomba ${currentSantriAktif} berhasil disinkronkan.`);
+                }
+            } else {
+                toastInfo('Tidak ada perubahan', 'Tidak ada data yang berubah.');
+            }
+        }
+
+        // ================= KOMUNIKASI GAS & REKAP =================
+        // Legacy: tetap dipertahankan untuk kompatibilitas, tapi sekarang via queue
+        async function kirimDataKeGas(namaSantri, namaLomba, action) {
+            queueSyncOp(namaSantri, namaLomba, action);
+            // Auto-flush untuk operasi tunggal (asynchronous, tidak menunggu)
+            if (!isSyncing && pendingSyncOps.length > 0) {
+                // Debounce: tunggu 800ms untuk batch dengan operasi lain
+                if (window._autoFlushTimer) clearTimeout(window._autoFlushTimer);
+                window._autoFlushTimer = setTimeout(() => {
+                    if (pendingSyncOps.length > 0 && !isSyncing) {
+                        flushPendingSync(null, { skipOverlay: true });
+                    }
+                }, 800);
+            }
+            return true;
+        }
+
+        function closeModal() {
+            const modal = document.getElementById("modal");
+            modal.classList.add("hidden");
+            modal.classList.remove("flex");
+            // Pulihkan tombol "Simpan Pilihan" jika sebelumnya disembunyikan oleh modal ganti lembaga
+            const btnSave = document.getElementById("btn-simpan-modal");
+            if (btnSave) btnSave.style.display = "";
+        }
+
+        // ================= CEK KONEKSI SERVER =================
+        async function cekKoneksiServer() {
+            const btn = event?.target;
+            if (btn) setButtonLoading(btn, true, 'Mengecek...');
+
+            try {
+                const params = new URLSearchParams({ action: "ping" });
+                const t0 = Date.now();
+                const res = await fetchWithTimeout(`${GAS_URL}?${params.toString()}`, {
+                    method: "GET",
+                    cache: "no-store"
+                }, 10000);
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                const result = await res.json();
+                const rtt = Date.now() - t0;
+
+                if (result.status === "success") {
+                    toastSuccess('Server terhubung', `Respon: ${rtt}ms. Server time: ${new Date(result.server_time).toLocaleTimeString('id-ID')}.`);
+                } else {
+                    throw new Error(result.message || 'Respon tidak valid');
+                }
+            } catch (err) {
+                toastError('Gagal terhubung', err.message);
+            } finally {
+                if (btn) setButtonLoading(btn, false);
+            }
+        }
+
+        // ================= REKAP DASHBOARD =================
+        async function bukaDashboardRekap() {
+            showScreen("rekap");
+            document.getElementById("rekap-loading").classList.remove("hidden");
+            document.getElementById("rekap-content").classList.add("hidden");
+            document.getElementById("rekap-content").innerHTML = "";
+
+            try {
+                // [FIX PERSENTASE 0%] Sebelum render, TARIK ULANG allRegistrationsData
+                // dari server. Tanpa ini, allRegistrationsData bisa kosong/stale
+                // (mis. fetch awal gagal / sudah ada pendaftar baru) sehingga
+                // getStatsJenjangGender mengembalikan regCount=0 → persentase 0%.
+                await fetchAllRegistrations();
+
+                const res = await fetchWithTimeout(GAS_URL, { method: "GET", cache: "no-store" });
+                const result = await res.json();
+                document.getElementById("rekap-loading").classList.remove("hidden");
+
+                if (result.status === "success") {
+                    renderRekapUI(result.data);
+                    const cachedAt = result.cached_at ? new Date(result.cached_at).toLocaleTimeString('id-ID') : '';
+                    toastInfo('Rekap dimuat', cachedAt ? `Data cache dari ${cachedAt}.` : 'Data terbaru.');
+                } else {
+                    document.getElementById("rekap-loading").classList.add("hidden");
+                    document.getElementById("rekap-content").innerHTML = `<p class="text-red-500">Gagal memuat data: ${result.message}</p>`;
+                    document.getElementById("rekap-content").classList.remove("hidden");
+                }
+            } catch (err) {
+                document.getElementById("rekap-loading").classList.add("hidden");
+                document.getElementById("rekap-content").innerHTML = `<p class="text-red-500">Gagal terhubung ke server: ${err.message}</p>`;
+                document.getElementById("rekap-content").classList.remove("hidden");
+            }
+        }
+
+        function renderRekapUI(dataRekap) {
+            const container = document.getElementById("rekap-content");
+            container.innerHTML = "";
+
+            const orderTingkat = ["SD", "SMP", "SMA", "PGMI"];
+
+            orderTingkat.forEach(tingkat => {
+                const keyPutra = `${tingkat}_PUTRA`;
+                const keyPutri = `${tingkat}_PUTRI`;
+
+                if (dataRekap[keyPutra] || dataRekap[keyPutri]) {
+                    const block = document.createElement("div");
+                    block.className = "mb-8 border rounded-xl overflow-hidden shadow-sm";
+
+                    const header = document.createElement("div");
+                    header.className = "bg-blue-800 text-white p-3 font-bold text-lg text-center";
+                    header.innerText = `TINGKAT ${tingkat}`;
+                    block.appendChild(header);
+
+                    const grid = document.createElement("div");
+                    if (tingkat === "PGMI") {
+                        grid.className = "grid grid-cols-1";
+                        const colPutri = createColumnRekap("PUTRI", dataRekap[keyPutri], tingkat);
+                        grid.appendChild(colPutri);
+                    } else {
+                        grid.className = "grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200";
+                        const colPutra = createColumnRekap("PUTRA", dataRekap[keyPutra], tingkat);
+                        const colPutri = createColumnRekap("PUTRI", dataRekap[keyPutri], tingkat);
+                        grid.appendChild(colPutra);
+                        grid.appendChild(colPutri);
+                    }
+
+                    block.appendChild(grid);
+                    container.appendChild(block);
+                }
+            });
+            container.classList.remove("hidden");
+        }
+
+        function createColumnRekap(genderTitle, dataGender, tingkat) {
+            const div = document.createElement("div");
+            div.className = "p-4 bg-gray-50 h-full";
+            
+            // TAMBAHAN: Progress Bar Persentase Kategori Rekap
+            let stats = getStatsJenjangGender(tingkat, genderTitle);
+            
+            div.innerHTML = `
+                <div class="text-center mb-4 border-b pb-2">
+                    <h4 class="font-bold text-blue-700">${genderTitle}</h4>
+                    <p class="text-[11px] text-gray-600 font-semibold mt-1">Total Pendaftar: ${stats.regCount} / ${stats.popCount} (${stats.pct}%)</p>
+                    <div class="w-2/3 mx-auto mt-2 bg-gray-200 rounded-full h-1.5">
+                        <div class="bg-green-500 h-1.5 rounded-full" style="width: ${stats.pct}%"></div>
+                    </div>
+                </div>
+            `;
+
+            if (!dataGender || Object.keys(dataGender).length === 0) {
+                div.innerHTML += `<p class="text-sm text-center text-gray-400 mt-4">Belum ada pendaftar</p>`;
+                return div;
+            }
+
+            const orderCabang = ["Bahasa", "UTHQ", "KLIK"];
+            const lombaStruktur = MATA_LOMBA[tingkat];
+
+            orderCabang.forEach(cabang => {
+                if (lombaStruktur[cabang]) {
+                    let hasData = false;
+                    let htmlList = `<ul class="space-y-1 mb-4">`;
+
+                    lombaStruktur[cabang].forEach(lombaName => {
+                        if (dataGender[lombaName]) {
+                            hasData = true;
+                            htmlList += `<li class="flex justify-between text-sm border-b border-gray-200 pb-1">
+                                <span class="text-gray-700">${lombaName}</span>
+                                <span class="font-bold text-blue-600 bg-blue-100 px-2 rounded">${dataGender[lombaName]}</span>
+                            </li>`;
+                        }
+                    });
+
+                    htmlList += `</ul>`;
+
+                    if (hasData) {
+                        div.innerHTML += `<h5 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 mt-4 border-b-2 border-gray-300 inline-block">Cabang ${cabang}</h5>`;
+                        div.innerHTML += htmlList;
+                    }
+                }
+            });
+            return div;
+        }
+
+        function tutupRekap() {
+            showScreen(previousScreen || "gender");
+        }
+
+        // ============================================================
+        //  FUNGSI TAMBAHAN BARU (UNTUK PERSENTASE DAN DOWNLOAD)
+        // ============================================================
+
+                /**
+         * Ambil data semua pendaftar dari server (untuk persentase & download).
+         * @param {Object} opts
+         * @param {boolean} opts.silent - jika true, jangan tampilkan toast error
+         *   (untuk pemanggilan background seperti saat init page).
+         */
+        async function fetchAllRegistrations(opts) {
+            const silent = opts && opts.silent;
+            try {
+                // HANYA DITAMBAH: parameter &t= (timestamp) agar browser dipaksa mengambil data terbaru (tidak nyangkut di cache)
+                const timestamp = new Date().getTime();
+                const res = await fetchWithTimeout(`${GAS_URL}?action=rekap_all_registrations&t=${timestamp}`, {
+                    method: 'GET',
+                    cache: 'no-store'
+                });
+                const result = await res.json();
+                if (result.status === "success" && Array.isArray(result.data)) {
+                    allRegistrationsData = result.data;
+                } else {
+                    // [DIAGNOSTIK] Server merespons tapi status != "success" atau
+                    // data bukan array. Tampilkan ke user (kecuali mode silent)
+                    // agar masalah tidak tersembunyi di console. Penyebab umum:
+                    // error GAS "Argument too large: value" saat CacheService.put
+                    // gagal karena payload > 100KB.
+                    console.error("fetchAllRegistrations: response tidak valid:", result);
+                    if (!silent) {
+                        toastError(
+                            'Gagal memuat rekap',
+                            'Server: ' + (result.message || JSON.stringify(result).slice(0, 200))
+                        );
+                    }
+                }
+            } catch (err) {
+                console.warn("Gagal mengambil data global:", err);
+                if (!silent) {
+                    toastError('Gagal memuat rekap', 'Network: ' + err.message);
+                }
+            }
+        }
+
+        /**
+         * Format timestamp ISO-8601 (UTC) ke tanggal+jam Indonesia.
+         * Tangani juga kasus: string non-ISO, Date object, atau kosong.
+         * @param {string|Date} ts
+         * @returns {string} "YYYY-MM-DD HH:mm:ss" atau "" jika kosong
+         */
+        function formatTimestampID(ts) {
+            if (!ts) return "";
+            let d;
+            try {
+                d = (ts instanceof Date) ? ts : new Date(ts);
+            } catch (e) {
+                return String(ts);
+            }
+            if (isNaN(d.getTime())) return String(ts);
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+                   `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+
+                function getStatsLembaga(idLembaga, namaLembaga) {
+            let db = getDBForLembaga(idLembaga);
+            let popCount = 0;
+            if (db) {
+                Object.values(db).forEach(arr => popCount += arr.length);
+            }
+            let regCount = 0;
+            if (Array.isArray(allRegistrationsData) && allRegistrationsData.length > 0) {
+                // HANYA DIUBAH: Pencocokan nama dijadikan huruf kecil (.toLowerCase) agar "SD IT" dan "Sd it" tetap terhitung
+                let cleanNama = namaLembaga.trim().toLowerCase();
+                regCount = allRegistrationsData.filter(r => (r.lembaga || "").trim().toLowerCase() === cleanNama).length;
+            }
+            let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
+            return { popCount, regCount, pct };
+        }
+
+        function getStatsKelas(idLembaga, namaLembaga, kelas) {
+            let db = getDBForLembaga(idLembaga);
+            let popCount = db && db[kelas] ? db[kelas].length : 0;
+            let regCount = 0;
+            if (Array.isArray(allRegistrationsData) && allRegistrationsData.length > 0) {
+                // HANYA DIUBAH: Pencocokan nama dan kelas dijadikan huruf kecil agar presisi
+                let cleanNama = namaLembaga.trim().toLowerCase();
+                let cleanKelas = kelas.trim().toLowerCase();
+                regCount = allRegistrationsData.filter(r => 
+                    (r.lembaga || "").trim().toLowerCase() === cleanNama && 
+                    (r.kelas || "").trim().toLowerCase() === cleanKelas
+                ).length;
+            }
+            let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
+            return { popCount, regCount, pct };
+        }
+
+        function getStatsJenjangGender(jenjang, gender) {
+            let popCount = 0; 
+            let regCount = 0;
+            let match = LEMBAGA.filter(l => l.jenjang === jenjang && l.gender === gender);
+            
+            match.forEach(l => {
+                let s = getStatsLembaga(l.id, l.nama);
+                popCount += s.popCount; 
+                regCount += s.regCount;
+            });
+            let pct = popCount === 0 ? 0 : Math.round((regCount / popCount) * 100);
+            return { popCount, regCount, pct };
+        }
+
+        function getCabangLomba(namaLomba, jenjang) {
+            const jenjangLomba = MATA_LOMBA[jenjang] || {};
+            for (const cabang in jenjangLomba) {
+                if (jenjangLomba[cabang].includes(namaLomba)) return cabang;
+            }
+            return "-";
+        }
+
+        function downloadExcelLembaga(lembagaNama) {
+            if (!allRegistrationsData || allRegistrationsData.length === 0) {
+                toastError("Data kosong", "Gagal memuat rekap pendaftar. Tunggu beberapa saat atau segarkan halaman.");
+                return;
+            }
+            let regLembaga = allRegistrationsData.filter(r => r.lembaga === lembagaNama);
+            if(regLembaga.length === 0) {
+                toastInfo("Masih Kosong", "Belum ada santri yang didaftarkan di lembaga ini.");
+                return;
+            }
+
+            let rows = [];
+            regLembaga.forEach(r => {
+                if (Array.isArray(r.lomba)) {
+                    r.lomba.forEach(lombaName => {
+                        let cabang = getCabangLomba(lombaName, r.jenjang);
+                        // Setiap baris mendapat timestamp dari santri (per-baris sheet).
+                        rows.push({
+                            jenjang: r.jenjang,
+                            cabang: cabang,
+                            lomba: lombaName,
+                            kelas: r.kelas,
+                            nama: r.nama,
+                            timestamp: formatTimestampID(r.timestamp)
+                        });
+                    });
+                }
+            });
+
+            // Pengurutan berlapis: Jenjang -> Cabang -> Lomba -> Kelas -> Nama
+            rows.sort((a, b) => {
+                if(a.jenjang !== b.jenjang) return a.jenjang.localeCompare(b.jenjang);
+                if(a.cabang !== b.cabang) return a.cabang.localeCompare(b.cabang);
+                if(a.lomba !== b.lomba) return a.lomba.localeCompare(b.lomba);
+                if(a.kelas !== b.kelas) return a.kelas.localeCompare(b.kelas);
+                return a.nama.localeCompare(b.nama);
+            });
+
+            let html = `
+            <html xmlns:x="urn:schemas-microsoft-com:office:excel">
+            <head><meta charset="utf-8">
+            <style>
+                table { border-collapse: collapse; width: 100%; font-family: sans-serif; }
+                th { background-color: #22c55e; color: white; border: 1px solid #ddd; padding: 5px; }
+                td { border: 1px solid #ddd; padding: 5px; }
+                .lembaga-header { background-color: #166534; color: white; font-weight: bold; font-size: 16px; text-transform: uppercase; text-align: center; }
+                .subtitle { background-color: #dcfce7; color: #166534; font-weight: bold; font-style: italic; text-align: center; }
+                .title { font-size: 14px; font-weight: bold; text-align: center; }
+                .waktu { font-size: 11px; font-style: italic; color: #4b5563; text-align: center; }
+            </style>
+            </head><body>
+            <table>
+                <tr><td colspan="7" class="lembaga-header">${lembagaNama}</td></tr>
+                <tr><td colspan="7" class="title">Rekapitulasi Pendaftar Lomba Festival Abu Hurairah ke-13</td></tr>
+                <tr><td colspan="7" class="subtitle">Total: ${rows.length} Pendaftaran Lomba</td></tr>
+                <tr><td colspan="7" style="border: none;">&nbsp;</td></tr>
+                <tr>
+                    <th>No</th><th>Jenjang</th><th>Cabang Lomba</th><th>Mata Lomba</th><th>Kelas</th><th>Nama Santri</th><th>Timestamp</th>
+                </tr>`;
+
+            rows.forEach((row, idx) => {
+                html += `<tr><td style="text-align:center">${idx+1}</td><td style="text-align:center">${row.jenjang}</td><td>${row.cabang}</td><td>${row.lomba}</td><td style="text-align:center">${row.kelas}</td><td>${row.nama}</td><td style="white-space:nowrap">${row.timestamp}</td></tr>`;
+            });
+            html += `</table></body></html>`;
+
+            let blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+            let url = URL.createObjectURL(blob);
+            let a = document.createElement('a');
+            a.href = url;
+            a.download = `Rekap_Peserta_${lembagaNama.replace(/\s+/g, '_')}.xls`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+// ============================================================
+        //  FUNGSI DOWNLOAD EXCEL REKAP GLOBAL KESELURUHAN (PANITIA)
+        //  Format XLSX asli — 2 sheet (Putra & Putri).
         //  Tiap sheet berisi tabel per-jenjang bertumpuk vertikal:
         //    Putra: SD → SMP → SMA
         //    Putri: SD → SMP → SMA → PGMI
