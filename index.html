@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pendaftaran Festival Abu Hurairah ke-13</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS untuk membuat file .xlsx asli (multi-sheet, side-by-side tables) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
     <!-- Load Semua Database Santri -->
     <script src="data_smp_putra.js"></script>
@@ -436,7 +438,7 @@
             <div class="flex justify-between items-center mb-6 border-b pb-2 flex-wrap gap-3">
                 <h2 class="text-2xl font-bold text-gray-800">Rekapitulasi Peserta</h2>
                 <div class="flex gap-2 flex-wrap">
-                    <button onclick="downloadExcelRekapGlobal(event)" class="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 font-bold shadow-sm flex-shrink-0">⬇️ Donlot Semua Rekap (XLS)</button>
+                    <button onclick="downloadExcelRekapGlobal(event)" class="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 font-bold shadow-sm flex-shrink-0">⬇️ Donlot Semua Rekap (XLSX)</button>
                     <button onclick="bukaDashboardRekap()" class="text-sm bg-green-100 text-green-700 px-3 py-1 rounded hover:bg-green-200 font-semibold">Refresh</button>
                     <button onclick="tutupRekap()" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300">Tutup</button>
                 </div>
@@ -485,7 +487,7 @@
         // ============================================================
         //  KONFIGURASI
         // ============================================================
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxr7l9ijjq1Odvv2OeB75OssNnsMIai1x5fAYYNFk9MBjJmUYV-b1VP74UfTfiUj0hv/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzXpkD0GSe9R7XoPWcaYnt8JE5XVc2-Tl-zqDeeDfHBa0DO7Gx7t-MMTLX8IMQ0rot3/exec";
         const FETCH_TIMEOUT_MS = 30000;     // 30 detik per request
         const MAX_RETRY = 3;                 // maksimum retry per operasi
         const RETRY_DELAYS = [1500, 3000, 6000]; // ms
@@ -543,8 +545,8 @@
         let currentModalContext = "";
         let currentSantriAktif = "";
         let previousScreen = "";
-		let isPendaftaranLocked = localStorage.getItem("app_audisi_locked") === "true";
-		
+                let isPendaftaranLocked = localStorage.getItem("app_audisi_locked") === "true";
+                
         // ============================================================
         //  STATE TAMBAHAN UNTUK PERSENTASE DAN EXPORT
         // ============================================================
@@ -1018,7 +1020,7 @@
         //  INIT
         // ============================================================
         window.onload = async () => {
-			updateLockUI(); // <-- Tambahkan baris ini
+                        updateLockUI(); // <-- Tambahkan baris ini
             loadPendingOps();
             updateSyncBadge();
 
@@ -1277,11 +1279,11 @@
         }
 
         function setGender(gender) {
-			if (isPendaftaranLocked) {
-			toastError("Pendaftaran Ditutup", "Pendaftaran saat ini sedang dikunci oleh panitia.");
-			return;
-			}
-			const listDiv = document.getElementById("list-lembaga");
+                        if (isPendaftaranLocked) {
+                        toastError("Pendaftaran Ditutup", "Pendaftaran saat ini sedang dikunci oleh panitia.");
+                        return;
+                        }
+                        const listDiv = document.getElementById("list-lembaga");
             listDiv.innerHTML = "";
             const filtered = LEMBAGA.filter(l => l.gender === gender);
 
@@ -1603,10 +1605,10 @@
 
         function openModalLomba(lomba, cabang) {
             if (isPendaftaranLocked) {
-			toastError("Pendaftaran Ditutup", "Tidak bisa menambah atau mengubah peserta lomba. Pendaftaran telah dikunci.");
-			return;
-			}
-			currentModalContext = 'lomba';
+                        toastError("Pendaftaran Ditutup", "Tidak bisa menambah atau mengubah peserta lomba. Pendaftaran telah dikunci.");
+                        return;
+                        }
+                        currentModalContext = 'lomba';
             currentLombaAktif = { nama: lomba, cabang: cabang };
             document.getElementById("modal-title").innerText = "Peserta: " + lomba;
             const content = document.getElementById("modal-content");
@@ -1744,10 +1746,10 @@
 
         function openModalSantri(santriStr) {
             if (isPendaftaranLocked) {
-			toastError("Pendaftaran Ditutup", "Tidak bisa menambah atau mengubah lomba santri. Pendaftaran telah dikunci.");
-			return;
-			}
-			currentModalContext = 'santri';
+                        toastError("Pendaftaran Ditutup", "Tidak bisa menambah atau mengubah lomba santri. Pendaftaran telah dikunci.");
+                        return;
+                        }
+                        currentModalContext = 'santri';
             currentSantriAktif = santriStr;
             document.getElementById("modal-title").innerText = "Kelola Lomba: " + santriStr;
             const content = document.getElementById("modal-content");
@@ -2235,15 +2237,230 @@
         }
 // ============================================================
         //  FUNGSI DOWNLOAD EXCEL REKAP GLOBAL KESELURUHAN (PANITIA)
+        //  Format XLSX asli — 2 sheet (Putra & Putri), 5 tabel cabang
+        //  bersebelahan: Bahasa Arab | Bahasa Indonesia | Bahasa Inggris | UTHQ | KLIK
+        //  Kolom: No | Lembaga | Kelas | Mata Lomba | Keterangan
         // ============================================================
+
+        // Daftar lembaga online (sesuai permintaan panitia)
+        const ONLINE_LEMBAGA_PATTERNS = [
+            /sembalun/i,           // SD IT Sembalun (Putra & Putri)
+            /sumbawa/i,            // SMP IT Abhur Sumbawa (Putra & Putri)
+            /\bibs\b/i             // SMA IBS (AH/Bali)
+        ];
+
+        // Urutan prioritas lembaga (makin kecil = makin awal di tabel)
+        const LEMBAGA_ORDER_MAP = {
+            // === Offline priority 1: SMP/SMA Fullday ===
+            "SMP IT Putra Fullday": 10,
+            "SMA IT Putra Fullday": 11,
+            // === Offline priority 2: PPS Wustho & Ulya ===
+            "PPS Diniyah Wustho": 20,
+            "PPS Diniyah Ulya": 21,
+            // === Offline priority 3: SMP IT Abhur Mataram & MA Plus ===
+            "SMP IT Putra Abhur Mataram": 30,
+            "SMP IT Putri Abhur Mataram": 31,
+            "MA Plus Mataram": 32,
+            // === Offline priority 4: lembaga lain yang tidak disebut ===
+            "SD IT Putra Abhur Mataram": 40,
+            "SD IT Putri Abhur Mataram": 41,
+            "SMA IT Putri Abhur Mataram": 42,
+            "PGMI": 43,
+            // === Online (paling bawah, dengan keterangan "online") ===
+            "SD IT Sembalun (Putra)": 500,
+            "SD IT Sembalun (Putri)": 501,
+            "SMP IT Abhur Sumbawa (Putra)": 502,
+            "SMP IT Abhur Sumbawa (Putri)": 503,
+            "SMA IBS AH": 504,
+            "SMA IBS Bali": 504
+        };
+
+        function isLembagaOnline(lembagaNama) {
+            const nama = (lembagaNama || "").trim();
+            // Cek exact match dulu
+            if (LEMBAGA_ORDER_MAP.hasOwnProperty(nama)) {
+                return LEMBAGA_ORDER_MAP[nama] >= 500;
+            }
+            // Fallback: cek pattern
+            return ONLINE_LEMBAGA_PATTERNS.some(re => re.test(nama));
+        }
+
+        function getLembagaOrderIndex(lembagaNama) {
+            const nama = (lembagaNama || "").trim();
+            if (LEMBAGA_ORDER_MAP.hasOwnProperty(nama)) {
+                return LEMBAGA_ORDER_MAP[nama];
+            }
+            // Fallback heuristic
+            if (isLembagaOnline(nama)) return 599;
+            const lower = nama.toLowerCase();
+            if (lower.includes('fullday')) {
+                if (lower.startsWith('smp')) return 10;
+                if (lower.startsWith('sma')) return 11;
+                return 19;
+            }
+            if (lower.includes('wustho')) return 20;
+            if (lower.includes('ulya')) return 21;
+            if (lower.includes('ma plus')) return 32;
+            if (lower.includes('smp') && lower.includes('abhur mataram')) return 30;
+            if (lower.includes('sd') && lower.includes('abhur mataram')) return 40;
+            if (lower.includes('pgmi')) return 43;
+            return 99;
+        }
+
+        function getGenderForLembaga(lembagaNama) {
+            const found = LEMBAGA.find(l => l.nama === lembagaNama);
+            if (found) return found.gender;
+            const lower = (lembagaNama || "").toLowerCase();
+            if (lower.includes('putri') || lower.includes('pgmi')) return 'PUTRI';
+            return 'PUTRA';
+        }
+
+        /**
+         * Tentukan cabang lomba detail: "Bahasa Arab" | "Bahasa Indonesia"
+         * | "Bahasa Inggris" | "UTHQ" | "KLIK"
+         */
+        function getCabangLombaDetail(lombaName, jenjang) {
+            const upper = (lombaName || "").toUpperCase().trim();
+            const cabangLomba = MATA_LOMBA[jenjang] || {};
+            // 1) UTHQ — kategori tahfizh
+            if (cabangLomba["UTHQ"] && cabangLomba["UTHQ"].includes(lombaName)) return "UTHQ";
+            if (upper.includes("TAHFIZH") || upper.includes("UTHQ")) return "UTHQ";
+            // 2) KLIK — kategori klik
+            if (cabangLomba["KLIK"] && cabangLomba["KLIK"].includes(lombaName)) return "KLIK";
+            // 3) Bahasa — pecah berdasarkan bahasa
+            if (upper.includes("B.ARAB") || upper.includes("QIRA'ATUL KUTUB") || upper.includes("HIFZHUL MUTUN")) {
+                return "Bahasa Arab";
+            }
+            if (upper.includes("B.INDO")) {
+                return "Bahasa Indonesia";
+            }
+            if (upper.includes("B.INGGRIS") || upper.includes("STORY TELLING")) {
+                return "Bahasa Inggris";
+            }
+            // Fallback: jika masuk kategori Bahasa tapi tidak tertangkap, anggap Bahasa Arab
+            if (cabangLomba["Bahasa"] && cabangLomba["Bahasa"].includes(lombaName)) {
+                return "Bahasa Arab";
+            }
+            return "Lainnya";
+        }
+
+        /**
+         * Bangun worksheet untuk satu gender (Putra/Putri) berisi 5 tabel
+         * cabang yang disusun berdampingan dari kiri ke kanan:
+         * Bahasa Arab | Bahasa Indonesia | Bahasa Inggris | UTHQ | KLIK
+         */
+        function buildSheetForGender(gender, allRows) {
+            const CABANG_LIST = ['Bahasa Arab', 'Bahasa Indonesia', 'Bahasa Inggris', 'UTHQ', 'KLIK'];
+            const HEADERS = ['No', 'Lembaga', 'Kelas', 'Mata Lomba', 'Keterangan'];
+            const TABLE_COLS = HEADERS.length; // 5 kolom per tabel
+            const TABLE_GAP = 1; // 1 kolom kosong sebagai pemisah antar tabel
+
+            const rowsForGender = allRows.filter(r => r.gender === gender);
+
+            // Susun data tiap cabang: array of rows, masing-masing row = [no, lembaga, kelas, lomba, keterangan]
+            const tables = CABANG_LIST.map(cabang => {
+                const rowsInCabang = rowsForGender.filter(r => r.cabang === cabang);
+                // Sort by lembaga order, lalu kelas, lalu nama
+                rowsInCabang.sort((a, b) => {
+                    const aOrd = a.orderIdx;
+                    const bOrd = b.orderIdx;
+                    if (aOrd !== bOrd) return aOrd - bOrd;
+                    if (a.kelas !== b.kelas) return String(a.kelas).localeCompare(String(b.kelas));
+                    return String(a.nama).localeCompare(String(b.nama));
+                });
+                const dataRows = rowsInCabang.map((r, i) => [
+                    i + 1,
+                    r.lembaga,
+                    r.kelas,
+                    r.lomba,
+                    r.isOnline ? 'online' : ''
+                ]);
+                return { cabang, dataRows };
+            });
+
+            // Hitung dimensi gabungan
+            const titleRows = 1; // baris judul cabang (merged)
+            const headerRows = 1; // baris header kolom
+            const topPadding = titleRows + headerRows; // 2 baris di atas data
+            const maxDataRows = Math.max(...tables.map(t => t.dataRows.length), 0);
+            const totalRows = topPadding + maxDataRows;
+            const totalCols = tables.length * TABLE_COLS + (tables.length - 1) * TABLE_GAP;
+
+            // Bangun AOA kosong
+            const aoa = [];
+            for (let r = 0; r < totalRows; r++) {
+                const row = [];
+                for (let c = 0; c < totalCols; c++) row.push('');
+                aoa.push(row);
+            }
+
+            const merges = [];
+            let colOffset = 0;
+
+            tables.forEach(t => {
+                const startCol = colOffset;
+                const endCol = startCol + TABLE_COLS - 1;
+
+                // Baris judul (merge 5 kolom)
+                merges.push({
+                    s: { r: 0, c: startCol },
+                    e: { r: 0, c: endCol }
+                });
+                aoa[0][startCol] = `CABANG: ${t.cabang}`;
+
+                // Baris header kolom
+                HEADERS.forEach((h, i) => {
+                    aoa[1][startCol + i] = h;
+                });
+
+                // Data rows
+                t.dataRows.forEach((row, i) => {
+                    row.forEach((val, j) => {
+                        aoa[2 + i][startCol + j] = val;
+                    });
+                });
+
+                colOffset += TABLE_COLS + TABLE_GAP;
+            });
+
+            // Buat worksheet dari AOA
+            const ws = XLSX.utils.aoa_to_sheet(aoa);
+            ws['!merges'] = merges;
+
+            // Set lebar kolom: No=5, Lembaga=30, Kelas=10, Mata Lomba=30, Keterangan=12
+            const colWidths = [];
+            for (let t = 0; t < tables.length; t++) {
+                colWidths.push({ wch: 5 });   // No
+                colWidths.push({ wch: 30 });  // Lembaga
+                colWidths.push({ wch: 10 });  // Kelas
+                colWidths.push({ wch: 30 });  // Mata Lomba
+                colWidths.push({ wch: 12 });  // Keterangan
+                if (t < tables.length - 1) colWidths.push({ wch: 2 }); // gap
+            }
+            ws['!cols'] = colWidths;
+
+            // Set freeze panes di baris 2 (setelah judul+header)
+            ws['!freeze'] = { ySplit: 2, topLeftCell: 'A3', activePane: 'bottomLeft', state: 'frozen' };
+
+            return ws;
+        }
+
         async function downloadExcelRekapGlobal(event) {
             const btn = event.currentTarget;
             const originalText = btn.innerHTML;
-            btn.innerHTML = "Menyiapkan XLS...";
+            btn.innerHTML = "Menyiapkan XLSX...";
             btn.disabled = true;
 
-            // Pastikan kita menarik data paling terbaru dari Google Sheet sebelum di-generate
-            await fetchAllRegistrations(); 
+            // Pastikan library SheetJS sudah dimuat
+            if (typeof XLSX === 'undefined') {
+                toastError("Library belum siap", "SheetJS belum selesai dimuat. Tunggu beberapa saat lalu coba lagi.");
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
+
+            // Tarik data terbaru dari server sebelum generate
+            await fetchAllRegistrations();
 
             if (!allRegistrationsData || allRegistrationsData.length === 0) {
                 toastError("Data kosong", "Gagal memuat rekap pendaftar. Tunggu beberapa saat atau segarkan halaman.");
@@ -2252,104 +2469,65 @@
                 return;
             }
 
-            // Ambil waktu penarikan data saat ini
-            const now = new Date();
-            const opsiTanggal = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            const waktuCetak = now.toLocaleDateString('id-ID', opsiTanggal) + ' Pukul ' + now.toLocaleTimeString('id-ID');
-
-            let html = `
-            <html xmlns:x="urn:schemas-microsoft-com:office:excel">
-            <head>
-                <meta charset="utf-8">
-                <style>
-                    table { border-collapse: collapse; width: 100%; font-family: sans-serif; }
-                    th, td { border: 1px solid #000; padding: 6px; }
-                    .lembaga { background-color: #166534; color: white; font-weight: bold; font-size: 14px; text-transform: uppercase; }
-                    .cabang { background-color: #dcfce7; font-weight: bold; color: #166534; }
-                    .lomba { background-color: #bbf7d0; font-weight: bold; color: #064e3b; }
-                    .header-col { background-color: #f3f4f6; font-weight: bold; text-align: center; }
-                    .title { font-size: 18px; font-weight: bold; text-align: center; border: none; }
-                    .waktu { font-size: 12px; font-style: italic; color: #4b5563; text-align: center; border: none; }
-                </style>
-            </head>
-            <body>
-                <table>
-                    <tr><td colspan="4" class="title">Rekapitulasi Total Pendaftar Festival Abu Hurairah ke-13</td></tr>
-                    <tr><td colspan="4" class="waktu">Data ditarik pada: ${waktuCetak}</td></tr>
-                    <tr><td colspan="4" style="border: none;">&nbsp;</td></tr>`;
-
-            // Looping berdasarkan setiap lembaga (Otomatis memisahkan Putra dan Putri)
-            LEMBAGA.forEach(lembaga => {
-                let regLembaga = allRegistrationsData.filter(r => r.lembaga === lembaga.nama);
-                if (regLembaga.length === 0) return; // Skip kalau belum ada yang daftar di lembaga ini
-
-                // Header Lembaga
-                html += `<tr><td colspan="4" class="lembaga">${lembaga.nama} (JENJANG ${lembaga.jenjang})</td></tr>`;
-
-                const cabangLomba = MATA_LOMBA[lembaga.jenjang];
-                for (let cabang in cabangLomba) {
-                    let cabangHasData = false;
-                    let cabangHtml = `<tr><td colspan="4" class="cabang">CABANG: ${cabang}</td></tr>`;
-                    let lombaHtml = "";
-
-                    // Looping per mata lomba di dalam cabang tersebut
-                    cabangLomba[cabang].forEach(lombaName => {
-                        let students = regLembaga.filter(r => r.lomba && r.lomba.includes(lombaName));
-                        
-                        if (students.length > 0) {
-                            cabangHasData = true;
-                            // Urutkan siswa berdasarkan Kelas, lalu berdsarkan Nama
-                            students.sort((a, b) => {
-                                if(a.kelas !== b.kelas) return a.kelas.localeCompare(b.kelas);
-                                return a.nama.localeCompare(b.nama);
-                            });
-
-                            // Header Lomba + Total Anak
-                            lombaHtml += `<tr><td colspan="4" class="lomba">Mata Lomba: ${lombaName} | Total: ${students.length} Santri</td></tr>`;
-                            lombaHtml += `<tr>
-                                <td class="header-col" style="width: 40px;">No</td>
-                                <td class="header-col" style="width: 300px;">Nama Santri</td>
-                                <td class="header-col" style="width: 120px;">Kelas</td>
-                                <td class="header-col" style="width: 180px;">Timestamp</td>
-                            </tr>`;
-                            
-                            // Data Siswa
-                            students.forEach((s, idx) => {
-                                lombaHtml += `<tr><td style="text-align:center">${idx + 1}</td><td>${s.nama}</td><td style="text-align:center">${s.kelas}</td><td style="white-space:nowrap;text-align:center">${formatTimestampID(s.timestamp)}</td></tr>`;
-                            });
-                        }
+            // Flatten semua pendaftaran: satu baris per (santri, lomba)
+            const allRows = [];
+            allRegistrationsData.forEach(r => {
+                if (Array.isArray(r.lomba) && r.lomba.length > 0) {
+                    r.lomba.forEach(lombaName => {
+                        const orderIdx = getLembagaOrderIndex(r.lembaga);
+                        const isOnline = isLembagaOnline(r.lembaga);
+                        const cabang = getCabangLombaDetail(lombaName, r.jenjang);
+                        const gender = getGenderForLembaga(r.lembaga);
+                        allRows.push({
+                            jenjang: r.jenjang,
+                            lembaga: r.lembaga,
+                            kelas: r.kelas,
+                            nama: r.nama,
+                            lomba: lombaName,
+                            cabang: cabang,
+                            gender: gender,
+                            isOnline: isOnline,
+                            orderIdx: orderIdx
+                        });
                     });
-
-                    // Jika ada data di cabang ini, gabungkan ke HTML Utama
-                    if (cabangHasData) {
-                        html += cabangHtml + lombaHtml;
-                    }
                 }
-                // Baris kosong untuk pemisah antar lembaga
-                html += `<tr><td colspan="4" style="border:none;">&nbsp;</td></tr>`;
             });
 
-            html += `</table></body></html>`;
+            if (allRows.length === 0) {
+                toastInfo("Belum ada pendaftar", "Belum ada santri yang didaftarkan di lomba manapun.");
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return;
+            }
 
-            // Konversi HTML ke File Excel
-            let blob = new Blob([html], { type: 'application/vnd.ms-excel' });
-            let url = URL.createObjectURL(blob);
-            let a = document.createElement('a');
-            a.href = url;
-            
-            // Tambahkan format jam pada nama file agar saat didownload file tidak saling menimpa
-            const fileTime = now.getHours() + "" + String(now.getMinutes()).padStart(2, '0');
-            a.download = `Rekap_Audisi_Keseluruhan_${fileTime}.xls`;
-            
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            // Buat workbook baru
+            const wb = XLSX.utils.book_new();
+            wb.Props = {
+                Title: "Rekapitulasi Pendaftar Festival Abu Hurairah ke-13",
+                Author: "Panitia Festival Abu Hurairah ke-13",
+                CreatedDate: new Date()
+            };
+
+            // Sheet 1: PUTRA
+            const wsPutra = buildSheetForGender('PUTRA', allRows);
+            XLSX.utils.book_append_sheet(wb, wsPutra, 'Putra');
+
+            // Sheet 2: PUTRI
+            const wsPutri = buildSheetForGender('PUTRI', allRows);
+            XLSX.utils.book_append_sheet(wb, wsPutri, 'Putri');
+
+            // Tulis file .xlsx
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            const fileTime = `${pad(now.getDate())}${pad(now.getMonth() + 1)}_${now.getHours()}${pad(now.getMinutes())}`;
+            const fileName = `Rekap_Audisi_Keseluruhan_${fileTime}.xlsx`;
+
+            XLSX.writeFile(wb, fileName);
 
             // Kembalikan status tombol
             btn.innerHTML = originalText;
             btn.disabled = false;
-            toastSuccess("Berhasil", "File Rekap Excel terbaru berhasil didownload.");
+            toastSuccess("Berhasil", "File Rekap XLSX (sheet Putra & Putri, tabel cabang bersebelahan) berhasil didownload.");
         }
     </script>
 
@@ -2978,7 +3156,7 @@
         ssUI.btnPause.addEventListener('click', togglePause);
         ssUI.btnExit.addEventListener('click', closeStarShooterGame);
     })();
-	
+        
 // ============================================================
 //  FUNGSI KUNCI/BUKA PENDAFTARAN KHUSUS ADMIN AGUS
 // ============================================================
